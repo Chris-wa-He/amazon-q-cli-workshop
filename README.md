@@ -17,6 +17,7 @@ Amazon Q CLI是一个命令行工具，它将Amazon Q的强大功能带到了命
 本workshop包含以下实验：
 
 1. [EC2连通性问题实验](./ec2-connectivity-lab/README.md) - 学习如何使用Amazon Q CLI诊断和解决EC2实例的连接问题。
+2. [AWS资源使用状况分析与成本优化实验](./cost-optimization-lab/README.md) - 学习如何使用Amazon Q CLI分析AWS资源使用情况并获取成本优化建议。
 
 ## 准备工作
 
