@@ -18,4 +18,4 @@
   - 实验描述：编写一个Lambda函数，用于每天检查是否有EC2实例超过30天未启动，如果发现这些实例，则向用户配置的SNS topic发送一个提醒信息。
   - 实验任务：使用Amazon Q CLI帮助编写Lambda函数代码、创建必要的IAM角色和权限、配置SNS通知，并设置CloudWatch Events触发器。
   - 实验目标：学习如何使用Amazon Q CLI辅助自动化运维任务的开发和部署。
-  - 状态：待完成
+  - 状态：待测试 (创建了automated-operations-lab目录，包含README.md、lambda_function.py和template.yaml)
