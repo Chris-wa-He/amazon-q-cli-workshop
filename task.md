@@ -13,3 +13,9 @@
   - 实验任务：使用Amazon Q CLI查询资源使用情况，获取成本优化建议，并实施优化措施。
   - 实验目标：学习如何使用Amazon Q CLI进行成本分析和优化。
   - 状态：已完成 ✓ (创建了cost-optimization-lab目录，包含README.md和sample-queries.md)
+
+- [ ] 自动化运维实验
+  - 实验描述：编写一个Lambda函数，用于每天检查是否有EC2实例超过30天未启动，如果发现这些实例，则向用户配置的SNS topic发送一个提醒信息。
+  - 实验任务：使用Amazon Q CLI帮助编写Lambda函数代码、创建必要的IAM角色和权限、配置SNS通知，并设置CloudWatch Events触发器。
+  - 实验目标：学习如何使用Amazon Q CLI辅助自动化运维任务的开发和部署。
+  - 状态：待完成
