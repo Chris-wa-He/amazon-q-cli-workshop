@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: '自动化运维实验 - 检测长时间未启动的EC2实例并发送通知 | Automated Operations Lab - Detect EC2 instances inactive for over 30 days and send notifications'
+
+Parameters:
+  EmailAddress:
+    Type: String
+    Description: '接收通知的电子邮件地址 | Email address to receive notifications'
+    AllowedPattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    ConstraintDescription: '必须是有效的电子邮件地址 | Must be a valid email address'
+  
+  S3BucketName:
+    Type: String
+    Description: '存储Lambda函数代码的S3桶名称 | S3 bucket name where Lambda function code is stored'
+  
+  S3Key:
+    Type: String
+    Description: 'Lambda函数代码在S3桶中的路径 | Path to Lambda function code in S3 bucket'
+    Default: 'ec2_monitor_function.zip'
+
+Resources:
+  # SNS主题用于发送通知 | SNS topic for sending notifications
+  EC2MonitorSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: 'EC2监控通知 | EC2 Monitor Notifications'
+      TopicName: 'EC2InactiveInstancesAlert'
+
+  # SNS主题订阅 | SNS topic subscription
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: !Ref EmailAddress
+      TopicArn: !Ref EC2MonitorSNSTopic
+
+  # Lambda执行角色 | Lambda execution role
+  EC2MonitorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: EC2MonitorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ec2:DescribeInstances'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'sns:Publish'
+                Resource: !Ref EC2MonitorSNSTopic
+
+  # Lambda函数 | Lambda function
+  EC2MonitorLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: 'EC2InactiveInstancesMonitor'
+      Handler: 'lambda_function.lambda_handler'
+      Role: !GetAtt EC2MonitorLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: !Ref S3Key
+      Runtime: 'python3.9'
+      Timeout: 30
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref EC2MonitorSNSTopic
+
+  # CloudWatch Events规则 | CloudWatch Events rule
+  DailyEC2MonitorRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: 'DailyEC2MonitorRule'
+      Description: '每天触发EC2监控Lambda函数 | Triggers EC2 monitoring Lambda function daily'
+      ScheduleExpression: 'rate(1 day)'
+      State: 'ENABLED'
+      Targets:
+        - Id: 'EC2MonitorLambdaTarget'
+          Arn: !GetAtt EC2MonitorLambdaFunction.Arn
+
+  # 允许CloudWatch Events调用Lambda函数的权限 | Permission for CloudWatch Events to invoke Lambda function
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref EC2MonitorLambdaFunction
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt DailyEC2MonitorRule.Arn
+
+Outputs:
+  SNSTopicArn:
+    Description: 'SNS主题ARN | SNS Topic ARN'
+    Value: !Ref EC2MonitorSNSTopic
+  
+  LambdaFunctionName:
+    Description: 'Lambda函数名称 | Lambda Function Name'
+    Value: !Ref EC2MonitorLambdaFunction
+  
+  LambdaFunctionArn:
+    Description: 'Lambda函数ARN | Lambda Function ARN'
+    Value: !GetAtt EC2MonitorLambdaFunction.Arn
