@@ -1,40 +1,45 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'AWS网络架构分析实验 - 部署包含多个子网的VPC和EC2实例'
+Description: 'AWS Network Architecture Analysis Lab - Deploy VPC with multiple subnets and EC2 instances'
 
 Parameters:
   VpcCIDR:
-    Description: VPC的CIDR块
+    Description: CIDR block for the VPC
     Type: String
     Default: 10.0.0.0/16
 
   PublicSubnet1CIDR:
-    Description: 公有子网1的CIDR块
+    Description: CIDR block for public subnet 1
     Type: String
     Default: 10.0.1.0/24
 
   PublicSubnet2CIDR:
-    Description: 公有子网2的CIDR块
+    Description: CIDR block for public subnet 2
     Type: String
     Default: 10.0.2.0/24
 
   PrivateSubnet1CIDR:
-    Description: 私有子网1的CIDR块
+    Description: CIDR block for private subnet 1
     Type: String
     Default: 10.0.3.0/24
 
   PrivateSubnet2CIDR:
-    Description: 私有子网2的CIDR块
+    Description: CIDR block for private subnet 2
     Type: String
     Default: 10.0.4.0/24
 
   InstanceType:
-    Description: EC2实例类型
+    Description: EC2 instance type
     Type: String
     Default: t2.micro
     AllowedValues:
       - t2.micro
       - t2.small
       - t3.micro
+      
+  LatestAmiId:
+    Description: Latest Amazon Linux 2 AMI ID
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
 
 Resources:
   # VPC
@@ -48,7 +53,7 @@ Resources:
         - Key: Name
           Value: Network-Analysis-VPC
 
-  # 互联网网关
+  # Internet Gateway
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
@@ -62,7 +67,7 @@ Resources:
       InternetGatewayId: !Ref InternetGateway
       VpcId: !Ref VPC
 
-  # 公有子网1
+  # Public Subnet 1
   PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
@@ -74,7 +79,7 @@ Resources:
         - Key: Name
           Value: Public-Subnet-1
 
-  # 公有子网2
+  # Public Subnet 2
   PublicSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
@@ -86,7 +91,7 @@ Resources:
         - Key: Name
           Value: Public-Subnet-2
 
-  # 私有子网1
+  # Private Subnet 1
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
@@ -98,7 +103,7 @@ Resources:
         - Key: Name
           Value: Private-Subnet-1
 
-  # 私有子网2
+  # Private Subnet 2
   PrivateSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
@@ -110,14 +115,14 @@ Resources:
         - Key: Name
           Value: Private-Subnet-2
 
-  # NAT网关弹性IP
+  # NAT Gateway Elastic IP
   NatGatewayEIP:
     Type: AWS::EC2::EIP
     DependsOn: InternetGatewayAttachment
     Properties:
       Domain: vpc
 
-  # NAT网关
+  # NAT Gateway
   NatGateway:
     Type: AWS::EC2::NatGateway
     Properties:
@@ -127,7 +132,7 @@ Resources:
         - Key: Name
           Value: Network-Analysis-NAT
 
-  # 公有路由表
+  # Public Route Table
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -156,7 +161,7 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet2
 
-  # 私有路由表
+  # Private Route Table
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -184,11 +189,11 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable
       SubnetId: !Ref PrivateSubnet2
 
-  # 安全组
+  # Security Groups
   PublicSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: 允许从互联网访问的安全组
+      GroupDescription: Security group allowing access from the internet
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -206,7 +211,7 @@ Resources:
   PrivateSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: 只允许从VPC内部访问的安全组
+      GroupDescription: Security group allowing access only from within the VPC
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -221,7 +226,7 @@ Resources:
         - Key: Name
           Value: Private-SG
 
-  # EC2实例
+  # EC2 Instances
   PublicEC2Instance1:
     Type: AWS::EC2::Instance
     Properties:
@@ -229,7 +234,7 @@ Resources:
       SecurityGroupIds:
         - !Ref PublicSecurityGroup
       SubnetId: !Ref PublicSubnet1
-      ImageId: !Ref AmazonLinuxAMI
+      ImageId: !Ref LatestAmiId
       Tags:
         - Key: Name
           Value: Public-EC2-1
@@ -241,7 +246,7 @@ Resources:
       SecurityGroupIds:
         - !Ref PublicSecurityGroup
       SubnetId: !Ref PublicSubnet2
-      ImageId: !Ref AmazonLinuxAMI
+      ImageId: !Ref LatestAmiId
       Tags:
         - Key: Name
           Value: Public-EC2-2
@@ -253,7 +258,7 @@ Resources:
       SecurityGroupIds:
         - !Ref PrivateSecurityGroup
       SubnetId: !Ref PrivateSubnet1
-      ImageId: !Ref AmazonLinuxAMI
+      ImageId: !Ref LatestAmiId
       Tags:
         - Key: Name
           Value: Private-EC2-1
@@ -265,15 +270,10 @@ Resources:
       SecurityGroupIds:
         - !Ref PrivateSecurityGroup
       SubnetId: !Ref PrivateSubnet2
-      ImageId: !Ref AmazonLinuxAMI
+      ImageId: !Ref LatestAmiId
       Tags:
         - Key: Name
           Value: Private-EC2-2
-
-  # 获取最新的Amazon Linux 2 AMI
-  AmazonLinuxAMI:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
 
 Outputs:
   VPC:
@@ -281,25 +281,25 @@ Outputs:
     Value: !Ref VPC
 
   PublicSubnets:
-    Description: 公有子网列表
+    Description: List of public subnets
     Value: !Join [ ",", [ !Ref PublicSubnet1, !Ref PublicSubnet2 ] ]
 
   PrivateSubnets:
-    Description: 私有子网列表
+    Description: List of private subnets
     Value: !Join [ ",", [ !Ref PrivateSubnet1, !Ref PrivateSubnet2 ] ]
 
   PublicEC2Instance1:
-    Description: 公有子网1中的EC2实例ID
+    Description: EC2 instance ID in public subnet 1
     Value: !Ref PublicEC2Instance1
 
   PublicEC2Instance2:
-    Description: 公有子网2中的EC2实例ID
+    Description: EC2 instance ID in public subnet 2
     Value: !Ref PublicEC2Instance2
 
   PrivateEC2Instance1:
-    Description: 私有子网1中的EC2实例ID
+    Description: EC2 instance ID in private subnet 1
     Value: !Ref PrivateEC2Instance1
 
   PrivateEC2Instance2:
-    Description: 私有子网2中的EC2实例ID
+    Description: EC2 instance ID in private subnet 2
     Value: !Ref PrivateEC2Instance2
