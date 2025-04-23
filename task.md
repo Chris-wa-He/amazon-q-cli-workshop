@@ -24,4 +24,4 @@
   - 实验描述：通过CloudFormation部署一个包含多个子网的VPC，并在不同子网中部署EC2实例，然后使用Amazon Q CLI分析网络架构。
   - 实验任务：先运行CloudFormation模板部署VPC和EC2资源，然后使用Amazon Q CLI分析网络架构并生成网络架构图。
   - 实验目标：学习如何使用Amazon Q CLI分析和可视化AWS网络架构。
-  - 状态：待开发 (计划创建network-analysis-lab目录，包含README.md和template.yaml)
+  - 状态：待测试 (已创建network-analysis-lab目录，包含README.md、template.yaml和sample-queries.md)
