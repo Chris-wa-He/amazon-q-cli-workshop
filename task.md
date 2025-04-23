@@ -19,3 +19,9 @@
   - 实验任务：使用Amazon Q CLI帮助编写Lambda函数代码、创建必要的IAM角色和权限、配置SNS通知，并设置CloudWatch Events触发器。
   - 实验目标：学习如何使用Amazon Q CLI辅助自动化运维任务的开发和部署。
   - 状态：已完成 ✓ (创建了automated-operations-lab目录，包含README.md、lambda_function.py和template.yaml)
+
+- [ ] AWS网络架构分析实验
+  - 实验描述：通过CloudFormation部署一个包含多个子网的VPC，并在不同子网中部署EC2实例，然后使用Amazon Q CLI分析网络架构。
+  - 实验任务：先运行CloudFormation模板部署VPC和EC2资源，然后使用Amazon Q CLI分析网络架构并生成网络架构图。
+  - 实验目标：学习如何使用Amazon Q CLI分析和可视化AWS网络架构。
+  - 状态：待开发 (计划创建network-analysis-lab目录，包含README.md和template.yaml)
