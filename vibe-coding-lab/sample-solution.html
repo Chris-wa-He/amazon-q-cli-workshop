@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简易计算器</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f5f5f5;
+            margin: 0;
+        }
+        
+        .calculator {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            width: 300px;
+        }
+        
+        .display {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            padding: 15px;
+            text-align: right;
+            font-size: 24px;
+            height: 30px;
+            overflow: hidden;
+        }
+        
+        .buttons {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+        
+        button {
+            background-color: #e0e0e0;
+            border: none;
+            border-radius: 5px;
+            color: #333;
+            cursor: pointer;
+            font-size: 18px;
+            padding: 15px;
+            transition: background-color 0.2s;
+        }
+        
+        button:hover {
+            background-color: #d0d0d0;
+        }
+        
+        .operator {
+            background-color: #f0ad4e;
+            color: white;
+        }
+        
+        .operator:hover {
+            background-color: #ec971f;
+        }
+        
+        .equals {
+            background-color: #5cb85c;
+            color: white;
+        }
+        
+        .equals:hover {
+            background-color: #4cae4c;
+        }
+        
+        .clear {
+            background-color: #d9534f;
+            color: white;
+        }
+        
+        .clear:hover {
+            background-color: #c9302c;
+        }
+        
+        .history {
+            margin-top: 20px;
+            max-height: 150px;
+            overflow-y: auto;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+        
+        .history-item {
+            padding: 5px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="calculator">
+        <div class="display" id="display">0</div>
+        <div class="buttons">
+            <button class="clear" onclick="clearDisplay()">C</button>
+            <button onclick="appendToDisplay('(')">(</button>
+            <button onclick="appendToDisplay(')')">)</button>
+            <button class="operator" onclick="appendToDisplay('/')">/</button>
+            
+            <button onclick="appendToDisplay('7')">7</button>
+            <button onclick="appendToDisplay('8')">8</button>
+            <button onclick="appendToDisplay('9')">9</button>
+            <button class="operator" onclick="appendToDisplay('*')">×</button>
+            
+            <button onclick="appendToDisplay('4')">4</button>
+            <button onclick="appendToDisplay('5')">5</button>
+            <button onclick="appendToDisplay('6')">6</button>
+            <button class="operator" onclick="appendToDisplay('-')">-</button>
+            
+            <button onclick="appendToDisplay('1')">1</button>
+            <button onclick="appendToDisplay('2')">2</button>
+            <button onclick="appendToDisplay('3')">3</button>
+            <button class="operator" onclick="appendToDisplay('+')">+</button>
+            
+            <button onclick="appendToDisplay('0')">0</button>
+            <button onclick="appendToDisplay('.')">.</button>
+            <button onclick="backspace()">⌫</button>
+            <button class="equals" onclick="calculate()">=</button>
+        </div>
+        <div class="history" id="history"></div>
+    </div>
+
+    <script>
+        let currentInput = '0';
+        let calculationHistory = [];
+        
+        function updateDisplay() {
+            document.getElementById('display').textContent = currentInput;
+        }
+        
+        function appendToDisplay(value) {
+            if (currentInput === '0' && value !== '.') {
+                currentInput = value;
+            } else {
+                currentInput += value;
+            }
+            updateDisplay();
+        }
+        
+        function clearDisplay() {
+            currentInput = '0';
+            updateDisplay();
+        }
+        
+        function backspace() {
+            if (currentInput.length > 1) {
+                currentInput = currentInput.slice(0, -1);
+            } else {
+                currentInput = '0';
+            }
+            updateDisplay();
+        }
+        
+        function calculate() {
+            try {
+                // 保存计算表达式
+                const expression = currentInput;
+                
+                // 计算结果，使用toFixed(10)处理浮点数精度问题，然后去除末尾的0
+                const result = eval(currentInput);
+                const formattedResult = parseFloat(result.toFixed(10)).toString();
+                
+                // 添加到历史记录
+                addToHistory(expression, formattedResult);
+                
+                // 更新显示
+                currentInput = formattedResult;
+                updateDisplay();
+            } catch (error) {
+                currentInput = 'Error';
+                updateDisplay();
+                setTimeout(clearDisplay, 1500);
+            }
+        }
+        
+        function addToHistory(expression, result) {
+            calculationHistory.unshift({ expression, result });
+            if (calculationHistory.length > 10) {
+                calculationHistory.pop();
+            }
+            updateHistory();
+        }
+        
+        function updateHistory() {
+            const historyElement = document.getElementById('history');
+            historyElement.innerHTML = '';
+            
+            calculationHistory.forEach(item => {
+                const historyItem = document.createElement('div');
+                historyItem.className = 'history-item';
+                historyItem.textContent = `${item.expression} = ${item.result}`;
+                historyElement.appendChild(historyItem);
+            });
+        }
+        
+        // 添加键盘支持
+        document.addEventListener('keydown', function(event) {
+            const key = event.key;
+            
+            if (key >= '0' && key <= '9' || key === '.' || key === '+' || key === '-' || key === '*' || key === '/' || key === '(' || key === ')') {
+                appendToDisplay(key);
+            } else if (key === 'Enter' || key === '=') {
+                calculate();
+            } else if (key === 'Backspace') {
+                backspace();
+            } else if (key === 'Escape' || key === 'c' || key === 'C') {
+                clearDisplay();
+            }
+        });
+        
+        // 初始化显示
+        updateDisplay();
+    </script>
+</body>
+</html>
