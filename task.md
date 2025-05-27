@@ -31,3 +31,9 @@
   - 实验任务：与Q CLI进行互动式交流，先从提示词"请帮忙开发一个简单的html页面，实现可以进行加、减、乘、除，四则运算的计算器"开始，应用有任何错误，及需要修改的地方，直接向Q提需求；直至应用开发完成，没有运行错误。
   - 实验目标：通过实验体验"氛围编程"，后续用户可以在实践开发场景中应用。
   - 状态：已完成 ✓ (创建了vibe-coding-lab目录，包含README.md、README.en.md、sample-solution.html、sample-dialogue.md和sample-dialogue.en.md)
+
+- [ ] CloudWatch告警配置实验
+  - 实验描述：通过Amazon Q CLI为现有EC2实例配置CloudWatch告警，监控CPU使用率并在超过阈值时触发通知。
+  - 实验任务：使用Amazon Q CLI查询现有EC2实例，为其配置CPU使用率超过80%的CloudWatch告警，并设置适当的通知机制。
+  - 实验目标：学习如何使用Amazon Q CLI快速配置和管理CloudWatch告警，提高资源监控效率。
+  - 状态：待实现 (计划创建cloudwatch-alarm-lab目录，包含README.md、template.yaml和sample-queries.md)
