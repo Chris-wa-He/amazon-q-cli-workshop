@@ -21,6 +21,7 @@ Amazon Q CLI是一个命令行工具，它将Amazon Q的强大功能带到了命
 3. [自动化运维实验](./automated-operations-lab/README.md) - 学习如何使用Amazon Q CLI辅助自动化运维任务的开发和部署。
 4. [AWS网络架构分析实验](./network-analysis-lab/README.md) - 学习如何使用Amazon Q CLI分析和可视化AWS网络架构。
 5. [氛围编程(Vibe Coding)实验](./vibe-coding-lab/README.md) - 体验通过与Amazon Q CLI进行对话式交流来开发应用程序的流程。
+6. [CloudWatch告警配置实验](./cloudwatch-alarm-lab/README.md) - 学习如何使用Amazon Q CLI为EC2实例配置CPU使用率告警。
 
 ## 准备工作
 
