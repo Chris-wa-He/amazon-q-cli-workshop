@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'CloudWatch Alarm Lab - Deploys two EC2 instances for alarm configuration'
+Description: 'CloudWatch Alarm Lab - Deploys two EC2 instances for alarm configuration (Final Solution)'
 
 Parameters:
   InstanceType:
@@ -118,9 +118,7 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
           yum update -y
-          yum install -y httpd stress-ng
-          systemctl start httpd
-          systemctl enable httpd
+          yum install -y httpd php php-cli stress-ng
           
           # Create CPU load test page
           cat > /var/www/html/index.html << 'EOF'
@@ -162,18 +160,10 @@ Resources:
                           document.getElementById('status').innerHTML = 'Status: Starting CPU load test...';
                           document.getElementById('status').className = 'status running';
                           
-                          fetch('/start-load.php')
+                          fetch('/direct-stress.php')
                               .then(response => response.text())
                               .then(data => {
                                   document.getElementById('response').innerHTML = data;
-                                  
-                                  // Auto-update status after 10 minutes
-                                  setTimeout(function() {
-                                      document.getElementById('status').innerHTML = 'Status: CPU load test completed';
-                                      document.getElementById('status').className = 'status stopped';
-                                      document.getElementById('startBtn').disabled = false;
-                                      document.getElementById('stopBtn').disabled = true;
-                                  }, 600000);
                               });
                       }
                       
@@ -183,7 +173,7 @@ Resources:
                           document.getElementById('status').innerHTML = 'Status: Stopping CPU load test...';
                           document.getElementById('status').className = 'status stopped';
                           
-                          fetch('/stop-load.php')
+                          fetch('/stop-stress.php')
                               .then(response => response.text())
                               .then(data => {
                                   document.getElementById('response').innerHTML = data;
@@ -195,155 +185,158 @@ Resources:
           </html>
           EOF
           
-          # Create PHP scripts to start and stop CPU load with error logging
-          cat > /var/www/html/start-load.php << 'EOF'
+          # Create direct stress PHP script
+          cat > /var/www/html/direct-stress.php << 'EOF'
           <?php
           error_reporting(E_ALL);
           ini_set('display_errors', 1);
           
-          // Check if stress-ng is installed
+          // 清理任何现有的stress进程
+          shell_exec('pkill -f stress-ng 2>/dev/null');
+          shell_exec('pkill -f stress 2>/dev/null');
+          sleep(1);
+          
+          // 检查stress-ng是否安装
           $stress_check = shell_exec('which stress-ng 2>&1');
-          if (empty($stress_check) || strpos($stress_check, 'no stress-ng') !== false) {
-              echo "Error: stress-ng not found. Installing...<br>";
-              echo "<pre>" . shell_exec('sudo yum install -y stress-ng 2>&1') . "</pre>";
-          }
+          echo "<h3>环境检查</h3>";
+          echo "stress-ng路径: " . ($stress_check ? $stress_check : "未找到") . "<br>";
           
-          // Create a test file to check write permissions
-          $test_file = '/tmp/php_test_' . time() . '.txt';
-          $write_test = @file_put_contents($test_file, 'test');
-          if ($write_test === false) {
-              echo "Error: PHP cannot write to /tmp directory<br>";
-              echo "Permissions on /tmp:<br>";
-              echo "<pre>" . shell_exec('ls -la /tmp') . "</pre>";
-          } else {
-              unlink($test_file);
-              echo "PHP can write to /tmp directory<br>";
-          }
-          
-          // Try to run stress-ng with exec() and capture output
-          $output = [];
-          $return_var = 0;
-          exec('stress-ng --cpu 1 --timeout 10s 2>&1', $output, $return_var);
-          echo "Test run of stress-ng (short test):<br>";
-          echo "Return code: $return_var<br>";
-          echo "Output: <pre>" . implode("\n", $output) . "</pre><br>";
-          
-          // Now try to start the actual stress test
-          $output = [];
-          $return_var = 0;
-          exec('nohup stress-ng --cpu 1 --timeout 600s > /tmp/stress.log 2>&1 & echo $!', $output, $return_var);
-          
-          if ($return_var !== 0) {
-              echo "Error executing stress-ng. Return code: $return_var<br>";
-              echo "Error details:<br>";
-              echo "<pre>" . shell_exec('tail -20 /tmp/stress.log 2>&1') . "</pre>";
-          } else {
-              $pid = $output[0];
-              file_put_contents('/tmp/cpu_load_pid', $pid);
-              echo "CPU load started with PID: $pid<br>";
-              echo "Command output:<br>";
-              echo "<pre>" . shell_exec('ps aux | grep stress-ng') . "</pre>";
+          // 尝试使用不同的CPU压力工具
+          $methods = [
+              // 方法1: stress-ng使用yes方法 (通常效果很好)
+              "stress-ng --cpu $(nproc) --cpu-method yes --timeout 600s > /tmp/stress.log 2>&1 & echo $!",
               
-              // Check if process is actually running
-              sleep(1);
-              $process_check = shell_exec("ps -p $pid");
-              if (strpos($process_check, $pid) === false) {
-                  echo "Warning: Process $pid not found after starting. It may have failed to start.<br>";
-              } else {
-                  echo "Process verified as running.<br>";
-              }
+              // 方法2: 使用原生yes命令 (几乎在所有系统上都可用)
+              "for i in $(seq 1 $(nproc)); do yes > /dev/null & done; echo $!",
+              
+              // 方法3: 使用dd命令生成CPU负载
+              "for i in $(seq 1 $(nproc)); do dd if=/dev/zero of=/dev/null & done; echo $!"
+          ];
+          
+          // 尝试第一种方法
+          echo "<h3>启动CPU负载测试</h3>";
+          echo "尝试方法1: stress-ng with yes method<br>";
+          $pid = trim(shell_exec($methods[0]));
+          echo "进程ID: $pid<br>";
+          
+          // 保存PID到文件
+          file_put_contents('/tmp/cpu_load_pid', $pid);
+          chmod('/tmp/cpu_load_pid', 0666);
+          
+          // 等待进程启动
+          sleep(2);
+          
+          // 检查进程是否运行
+          $ps_output = shell_exec("ps -p $pid");
+          if (strpos($ps_output, $pid) !== false) {
+              echo "<div style='color:green; font-weight:bold;'>✓ 方法1成功启动</div>";
+          } else {
+              echo "<div style='color:red;'>✗ 方法1未能启动</div>";
+              
+              // 尝试方法2
+              echo "尝试方法2: 多个yes进程<br>";
+              shell_exec($methods[1]);
+              echo "<div style='color:blue;'>已启动yes进程</div>";
+              
+              // 保存一个标记文件表示使用了方法2
+              file_put_contents('/tmp/using_method2', '1');
           }
+          
+          // 显示当前进程
+          echo "<h3>当前运行的进程</h3>";
+          echo "<pre>";
+          echo shell_exec("ps aux | grep -E 'stress|yes|dd' | grep -v grep");
+          echo "</pre>";
+          
+          // 显示当前CPU负载
+          $load = sys_getloadavg();
+          echo "<h3>当前系统负载</h3>";
+          echo "1分钟平均负载: <strong>" . $load[0] . "</strong><br>";
+          echo "5分钟平均负载: <strong>" . $load[1] . "</strong><br>";
+          echo "15分钟平均负载: <strong>" . $load[2] . "</strong><br>";
+          
+          // 显示CPU使用率
+          echo "<h3>CPU使用率</h3>";
+          $cpu_usage = shell_exec("top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'");
+          echo "CPU使用率: <strong>" . trim($cpu_usage) . "%</strong><br>";
+          
+          echo "<h3>测试结果</h3>";
+          echo "<div id='result' style='padding: 10px; background-color: #f0f0f0; border-left: 4px solid #4CAF50;'>";
+          echo "CPU负载测试已启动，请等待1-2分钟后检查CloudWatch指标。<br>";
+          echo "如果您看到系统负载开始上升，说明测试正在生效。<br>";
+          echo "</div>";
+          
+          // 添加自动刷新
+          echo "<script>
+          setTimeout(function() {
+              location.reload();
+          }, 30000); // 30秒后自动刷新
+          </script>";
+          
+          echo "<p>页面将在30秒后自动刷新以显示最新状态</p>";
           ?>
           EOF
           
-          cat > /var/www/html/stop-load.php << 'EOF'
+          # Create stop stress PHP script
+          cat > /var/www/html/stop-stress.php << 'EOF'
           <?php
           error_reporting(E_ALL);
           ini_set('display_errors', 1);
           
+          echo "<h3>停止CPU负载测试</h3>";
+          
+          // 停止所有可能的CPU负载进程
+          shell_exec('pkill -f stress-ng 2>/dev/null');
+          shell_exec('pkill -f "yes > /dev/null" 2>/dev/null');
+          shell_exec('pkill -f "dd if=/dev/zero" 2>/dev/null');
+          
+          // 检查是否有PID文件
           if (file_exists('/tmp/cpu_load_pid')) {
               $pid = file_get_contents('/tmp/cpu_load_pid');
-              $output = [];
-              $return_var = 0;
-              exec("kill -9 $pid 2>&1", $output, $return_var);
-              
-              echo "Attempted to kill process $pid<br>";
-              echo "Return code: $return_var<br>";
-              echo "Output: <pre>" . implode("\n", $output) . "</pre><br>";
-              
-              if ($return_var === 0) {
-                  unlink('/tmp/cpu_load_pid');
-                  echo "CPU load stopped successfully";
-              } else {
-                  echo "Error stopping CPU load<br>";
-                  echo "Process status:<br>";
-                  echo "<pre>" . shell_exec("ps -p $pid") . "</pre>";
-              }
-          } else {
-              echo "No CPU load running (no PID file found)";
+              shell_exec("kill -9 $pid 2>/dev/null");
+              unlink('/tmp/cpu_load_pid');
+              echo "已终止进程ID: $pid<br>";
           }
+          
+          // 检查是否使用了方法2
+          if (file_exists('/tmp/using_method2')) {
+              unlink('/tmp/using_method2');
+              echo "已终止所有yes进程<br>";
+          }
+          
+          // 显示当前进程
+          echo "<h3>当前运行的进程</h3>";
+          echo "<pre>";
+          echo shell_exec("ps aux | grep -E 'stress|yes|dd' | grep -v grep");
+          echo "</pre>";
+          
+          // 显示当前CPU负载
+          $load = sys_getloadavg();
+          echo "<h3>当前系统负载</h3>";
+          echo "1分钟平均负载: <strong>" . $load[0] . "</strong><br>";
+          echo "5分钟平均负载: <strong>" . $load[1] . "</strong><br>";
+          echo "15分钟平均负载: <strong>" . $load[2] . "</strong><br>";
+          
+          // 显示CPU使用率
+          echo "<h3>CPU使用率</h3>";
+          $cpu_usage = shell_exec("top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'");
+          echo "CPU使用率: <strong>" . trim($cpu_usage) . "%</strong><br>";
+          
+          echo "<h3>测试结果</h3>";
+          echo "<div id='result' style='padding: 10px; background-color: #f0f0f0; border-left: 4px solid #f44336;'>";
+          echo "CPU负载测试已停止。<br>";
+          echo "系统负载应该会在几分钟内恢复正常。<br>";
+          echo "</div>";
           ?>
           EOF
-          
-          # Install PHP and required modules
-          yum install -y php php-cli
           
           # Set proper permissions
           chmod 755 /var/www/html/*.php
-          chown apache:apache /var/www/html/*.php
           chmod 777 /tmp
           
-          # Configure SELinux to allow httpd to execute shell commands and write to /tmp
-          if command -v sestatus &> /dev/null && sestatus | grep -q "SELinux status: *enabled"; then
-            yum install -y policycoreutils-python
-            setsebool -P httpd_can_network_connect 1
-            setsebool -P httpd_execmem 1
-            setsebool -P httpd_can_exec_content 1
-            semanage fcontext -a -t httpd_sys_rw_content_t "/tmp(/.*)?"
-            restorecon -Rv /tmp
-          fi
-          
-          # Create a test script to verify permissions
-          cat > /var/www/html/test-permissions.php << 'EOF'
-          <?php
-          error_reporting(E_ALL);
-          ini_set('display_errors', 1);
-          
-          echo "<h1>PHP Environment Test</h1>";
-          
-          echo "<h2>PHP Version</h2>";
-          echo "<pre>" . phpversion() . "</pre>";
-          
-          echo "<h2>Current User</h2>";
-          echo "<pre>" . shell_exec('whoami') . "</pre>";
-          
-          echo "<h2>SELinux Status</h2>";
-          echo "<pre>" . shell_exec('sestatus 2>&1') . "</pre>";
-          
-          echo "<h2>Installed Packages</h2>";
-          echo "<pre>" . shell_exec('rpm -qa | grep -E "stress-ng|php|httpd"') . "</pre>";
-          
-          echo "<h2>Directory Permissions</h2>";
-          echo "/tmp: <pre>" . shell_exec('ls -la /tmp | head -5') . "</pre>";
-          echo "/var/www/html: <pre>" . shell_exec('ls -la /var/www/html') . "</pre>";
-          
-          echo "<h2>Test Command Execution</h2>";
-          $output = [];
-          $return_var = 0;
-          exec('echo "Test command execution"', $output, $return_var);
-          echo "Return code: $return_var<br>";
-          echo "Output: <pre>" . implode("\n", $output) . "</pre>";
-          
-          echo "<h2>Available Functions</h2>";
-          $functions = array('exec', 'shell_exec', 'system', 'passthru');
-          foreach ($functions as $function) {
-              echo "$function: " . (function_exists($function) ? "Available" : "Disabled") . "<br>";
-          }
-          ?>
-          EOF
-          
-          # Restart Apache to apply changes
-          systemctl restart httpd
+          # Start Apache
+          systemctl start httpd
+          systemctl enable httpd
       Tags:
         - Key: Name
           Value: CloudWatch-Alarm-Lab-Instance-1
@@ -361,9 +354,7 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
           yum update -y
-          yum install -y httpd stress-ng
-          systemctl start httpd
-          systemctl enable httpd
+          yum install -y httpd php php-cli stress-ng
           
           # Create CPU load test page
           cat > /var/www/html/index.html << 'EOF'
@@ -405,18 +396,10 @@ Resources:
                           document.getElementById('status').innerHTML = 'Status: Starting CPU load test...';
                           document.getElementById('status').className = 'status running';
                           
-                          fetch('/start-load.php')
+                          fetch('/direct-stress.php')
                               .then(response => response.text())
                               .then(data => {
                                   document.getElementById('response').innerHTML = data;
-                                  
-                                  // Auto-update status after 10 minutes
-                                  setTimeout(function() {
-                                      document.getElementById('status').innerHTML = 'Status: CPU load test completed';
-                                      document.getElementById('status').className = 'status stopped';
-                                      document.getElementById('startBtn').disabled = false;
-                                      document.getElementById('stopBtn').disabled = true;
-                                  }, 600000);
                               });
                       }
                       
@@ -426,7 +409,7 @@ Resources:
                           document.getElementById('status').innerHTML = 'Status: Stopping CPU load test...';
                           document.getElementById('status').className = 'status stopped';
                           
-                          fetch('/stop-load.php')
+                          fetch('/stop-stress.php')
                               .then(response => response.text())
                               .then(data => {
                                   document.getElementById('response').innerHTML = data;
@@ -438,155 +421,158 @@ Resources:
           </html>
           EOF
           
-          # Create PHP scripts to start and stop CPU load with error logging
-          cat > /var/www/html/start-load.php << 'EOF'
+          # Create direct stress PHP script
+          cat > /var/www/html/direct-stress.php << 'EOF'
           <?php
           error_reporting(E_ALL);
           ini_set('display_errors', 1);
           
-          // Check if stress-ng is installed
+          // 清理任何现有的stress进程
+          shell_exec('pkill -f stress-ng 2>/dev/null');
+          shell_exec('pkill -f stress 2>/dev/null');
+          sleep(1);
+          
+          // 检查stress-ng是否安装
           $stress_check = shell_exec('which stress-ng 2>&1');
-          if (empty($stress_check) || strpos($stress_check, 'no stress-ng') !== false) {
-              echo "Error: stress-ng not found. Installing...<br>";
-              echo "<pre>" . shell_exec('sudo yum install -y stress-ng 2>&1') . "</pre>";
-          }
+          echo "<h3>环境检查</h3>";
+          echo "stress-ng路径: " . ($stress_check ? $stress_check : "未找到") . "<br>";
           
-          // Create a test file to check write permissions
-          $test_file = '/tmp/php_test_' . time() . '.txt';
-          $write_test = @file_put_contents($test_file, 'test');
-          if ($write_test === false) {
-              echo "Error: PHP cannot write to /tmp directory<br>";
-              echo "Permissions on /tmp:<br>";
-              echo "<pre>" . shell_exec('ls -la /tmp') . "</pre>";
-          } else {
-              unlink($test_file);
-              echo "PHP can write to /tmp directory<br>";
-          }
-          
-          // Try to run stress-ng with exec() and capture output
-          $output = [];
-          $return_var = 0;
-          exec('stress-ng --cpu 1 --timeout 10s 2>&1', $output, $return_var);
-          echo "Test run of stress-ng (short test):<br>";
-          echo "Return code: $return_var<br>";
-          echo "Output: <pre>" . implode("\n", $output) . "</pre><br>";
-          
-          // Now try to start the actual stress test
-          $output = [];
-          $return_var = 0;
-          exec('nohup stress-ng --cpu 1 --timeout 600s > /tmp/stress.log 2>&1 & echo $!', $output, $return_var);
-          
-          if ($return_var !== 0) {
-              echo "Error executing stress-ng. Return code: $return_var<br>";
-              echo "Error details:<br>";
-              echo "<pre>" . shell_exec('tail -20 /tmp/stress.log 2>&1') . "</pre>";
-          } else {
-              $pid = $output[0];
-              file_put_contents('/tmp/cpu_load_pid', $pid);
-              echo "CPU load started with PID: $pid<br>";
-              echo "Command output:<br>";
-              echo "<pre>" . shell_exec('ps aux | grep stress-ng') . "</pre>";
+          // 尝试使用不同的CPU压力工具
+          $methods = [
+              // 方法1: stress-ng使用yes方法 (通常效果很好)
+              "stress-ng --cpu $(nproc) --cpu-method yes --timeout 600s > /tmp/stress.log 2>&1 & echo $!",
               
-              // Check if process is actually running
-              sleep(1);
-              $process_check = shell_exec("ps -p $pid");
-              if (strpos($process_check, $pid) === false) {
-                  echo "Warning: Process $pid not found after starting. It may have failed to start.<br>";
-              } else {
-                  echo "Process verified as running.<br>";
-              }
+              // 方法2: 使用原生yes命令 (几乎在所有系统上都可用)
+              "for i in $(seq 1 $(nproc)); do yes > /dev/null & done; echo $!",
+              
+              // 方法3: 使用dd命令生成CPU负载
+              "for i in $(seq 1 $(nproc)); do dd if=/dev/zero of=/dev/null & done; echo $!"
+          ];
+          
+          // 尝试第一种方法
+          echo "<h3>启动CPU负载测试</h3>";
+          echo "尝试方法1: stress-ng with yes method<br>";
+          $pid = trim(shell_exec($methods[0]));
+          echo "进程ID: $pid<br>";
+          
+          // 保存PID到文件
+          file_put_contents('/tmp/cpu_load_pid', $pid);
+          chmod('/tmp/cpu_load_pid', 0666);
+          
+          // 等待进程启动
+          sleep(2);
+          
+          // 检查进程是否运行
+          $ps_output = shell_exec("ps -p $pid");
+          if (strpos($ps_output, $pid) !== false) {
+              echo "<div style='color:green; font-weight:bold;'>✓ 方法1成功启动</div>";
+          } else {
+              echo "<div style='color:red;'>✗ 方法1未能启动</div>";
+              
+              // 尝试方法2
+              echo "尝试方法2: 多个yes进程<br>";
+              shell_exec($methods[1]);
+              echo "<div style='color:blue;'>已启动yes进程</div>";
+              
+              // 保存一个标记文件表示使用了方法2
+              file_put_contents('/tmp/using_method2', '1');
           }
+          
+          // 显示当前进程
+          echo "<h3>当前运行的进程</h3>";
+          echo "<pre>";
+          echo shell_exec("ps aux | grep -E 'stress|yes|dd' | grep -v grep");
+          echo "</pre>";
+          
+          // 显示当前CPU负载
+          $load = sys_getloadavg();
+          echo "<h3>当前系统负载</h3>";
+          echo "1分钟平均负载: <strong>" . $load[0] . "</strong><br>";
+          echo "5分钟平均负载: <strong>" . $load[1] . "</strong><br>";
+          echo "15分钟平均负载: <strong>" . $load[2] . "</strong><br>";
+          
+          // 显示CPU使用率
+          echo "<h3>CPU使用率</h3>";
+          $cpu_usage = shell_exec("top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'");
+          echo "CPU使用率: <strong>" . trim($cpu_usage) . "%</strong><br>";
+          
+          echo "<h3>测试结果</h3>";
+          echo "<div id='result' style='padding: 10px; background-color: #f0f0f0; border-left: 4px solid #4CAF50;'>";
+          echo "CPU负载测试已启动，请等待1-2分钟后检查CloudWatch指标。<br>";
+          echo "如果您看到系统负载开始上升，说明测试正在生效。<br>";
+          echo "</div>";
+          
+          // 添加自动刷新
+          echo "<script>
+          setTimeout(function() {
+              location.reload();
+          }, 30000); // 30秒后自动刷新
+          </script>";
+          
+          echo "<p>页面将在30秒后自动刷新以显示最新状态</p>";
           ?>
           EOF
           
-          cat > /var/www/html/stop-load.php << 'EOF'
+          # Create stop stress PHP script
+          cat > /var/www/html/stop-stress.php << 'EOF'
           <?php
           error_reporting(E_ALL);
           ini_set('display_errors', 1);
           
+          echo "<h3>停止CPU负载测试</h3>";
+          
+          // 停止所有可能的CPU负载进程
+          shell_exec('pkill -f stress-ng 2>/dev/null');
+          shell_exec('pkill -f "yes > /dev/null" 2>/dev/null');
+          shell_exec('pkill -f "dd if=/dev/zero" 2>/dev/null');
+          
+          // 检查是否有PID文件
           if (file_exists('/tmp/cpu_load_pid')) {
               $pid = file_get_contents('/tmp/cpu_load_pid');
-              $output = [];
-              $return_var = 0;
-              exec("kill -9 $pid 2>&1", $output, $return_var);
-              
-              echo "Attempted to kill process $pid<br>";
-              echo "Return code: $return_var<br>";
-              echo "Output: <pre>" . implode("\n", $output) . "</pre><br>";
-              
-              if ($return_var === 0) {
-                  unlink('/tmp/cpu_load_pid');
-                  echo "CPU load stopped successfully";
-              } else {
-                  echo "Error stopping CPU load<br>";
-                  echo "Process status:<br>";
-                  echo "<pre>" . shell_exec("ps -p $pid") . "</pre>";
-              }
-          } else {
-              echo "No CPU load running (no PID file found)";
+              shell_exec("kill -9 $pid 2>/dev/null");
+              unlink('/tmp/cpu_load_pid');
+              echo "已终止进程ID: $pid<br>";
           }
+          
+          // 检查是否使用了方法2
+          if (file_exists('/tmp/using_method2')) {
+              unlink('/tmp/using_method2');
+              echo "已终止所有yes进程<br>";
+          }
+          
+          // 显示当前进程
+          echo "<h3>当前运行的进程</h3>";
+          echo "<pre>";
+          echo shell_exec("ps aux | grep -E 'stress|yes|dd' | grep -v grep");
+          echo "</pre>";
+          
+          // 显示当前CPU负载
+          $load = sys_getloadavg();
+          echo "<h3>当前系统负载</h3>";
+          echo "1分钟平均负载: <strong>" . $load[0] . "</strong><br>";
+          echo "5分钟平均负载: <strong>" . $load[1] . "</strong><br>";
+          echo "15分钟平均负载: <strong>" . $load[2] . "</strong><br>";
+          
+          // 显示CPU使用率
+          echo "<h3>CPU使用率</h3>";
+          $cpu_usage = shell_exec("top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'");
+          echo "CPU使用率: <strong>" . trim($cpu_usage) . "%</strong><br>";
+          
+          echo "<h3>测试结果</h3>";
+          echo "<div id='result' style='padding: 10px; background-color: #f0f0f0; border-left: 4px solid #f44336;'>";
+          echo "CPU负载测试已停止。<br>";
+          echo "系统负载应该会在几分钟内恢复正常。<br>";
+          echo "</div>";
           ?>
           EOF
-          
-          # Install PHP and required modules
-          yum install -y php php-cli
           
           # Set proper permissions
           chmod 755 /var/www/html/*.php
-          chown apache:apache /var/www/html/*.php
           chmod 777 /tmp
           
-          # Configure SELinux to allow httpd to execute shell commands and write to /tmp
-          if command -v sestatus &> /dev/null && sestatus | grep -q "SELinux status: *enabled"; then
-            yum install -y policycoreutils-python
-            setsebool -P httpd_can_network_connect 1
-            setsebool -P httpd_execmem 1
-            setsebool -P httpd_can_exec_content 1
-            semanage fcontext -a -t httpd_sys_rw_content_t "/tmp(/.*)?"
-            restorecon -Rv /tmp
-          fi
-          
-          # Create a test script to verify permissions
-          cat > /var/www/html/test-permissions.php << 'EOF'
-          <?php
-          error_reporting(E_ALL);
-          ini_set('display_errors', 1);
-          
-          echo "<h1>PHP Environment Test</h1>";
-          
-          echo "<h2>PHP Version</h2>";
-          echo "<pre>" . phpversion() . "</pre>";
-          
-          echo "<h2>Current User</h2>";
-          echo "<pre>" . shell_exec('whoami') . "</pre>";
-          
-          echo "<h2>SELinux Status</h2>";
-          echo "<pre>" . shell_exec('sestatus 2>&1') . "</pre>";
-          
-          echo "<h2>Installed Packages</h2>";
-          echo "<pre>" . shell_exec('rpm -qa | grep -E "stress-ng|php|httpd"') . "</pre>";
-          
-          echo "<h2>Directory Permissions</h2>";
-          echo "/tmp: <pre>" . shell_exec('ls -la /tmp | head -5') . "</pre>";
-          echo "/var/www/html: <pre>" . shell_exec('ls -la /var/www/html') . "</pre>";
-          
-          echo "<h2>Test Command Execution</h2>";
-          $output = [];
-          $return_var = 0;
-          exec('echo "Test command execution"', $output, $return_var);
-          echo "Return code: $return_var<br>";
-          echo "Output: <pre>" . implode("\n", $output) . "</pre>";
-          
-          echo "<h2>Available Functions</h2>";
-          $functions = array('exec', 'shell_exec', 'system', 'passthru');
-          foreach ($functions as $function) {
-              echo "$function: " . (function_exists($function) ? "Available" : "Disabled") . "<br>";
-          }
-          ?>
-          EOF
-          
-          # Restart Apache to apply changes
-          systemctl restart httpd
+          # Start Apache
+          systemctl start httpd
+          systemctl enable httpd
       Tags:
         - Key: Name
           Value: CloudWatch-Alarm-Lab-Instance-2
@@ -615,18 +601,6 @@ Outputs:
     Value: !Sub "http://${EC2Instance2.PublicDnsName}"
     Export:
       Name: !Sub "${AWS::StackName}-Instance2URL"
-
-  Instance1TestURL:
-    Description: URL for the first EC2 instance permissions test page
-    Value: !Sub "http://${EC2Instance1.PublicDnsName}/test-permissions.php"
-    Export:
-      Name: !Sub "${AWS::StackName}-Instance1TestURL"
-
-  Instance2TestURL:
-    Description: URL for the second EC2 instance permissions test page
-    Value: !Sub "http://${EC2Instance2.PublicDnsName}/test-permissions.php"
-    Export:
-      Name: !Sub "${AWS::StackName}-Instance2TestURL"
 
   VPCId:
     Description: ID of the VPC
