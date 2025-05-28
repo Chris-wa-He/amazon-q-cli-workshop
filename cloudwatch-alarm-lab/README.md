@@ -7,7 +7,7 @@
 在本实验中，您将：
 1. 使用CloudFormation模板部署两个EC2实例，每个实例都有一个Web界面用于生成CPU负载
 2. 使用Amazon Q CLI查询已部署的EC2实例
-3. 通过Amazon Q CLI为这些EC2实例批量配置CPU使用率超过80%的CloudWatch告警，持续1分钟即触发
+3. 通过Amazon Q CLI为这些EC2实例批量配置CPU使用率超过20%的CloudWatch告警，持续1分钟即触发
 4. 设置SNS通知，当告警触发时发送邮件通知
 5. 通过Web界面测试告警功能
 
@@ -66,7 +66,7 @@ q chat
 1. 在Amazon Q CLI会话中，请求帮助批量创建CloudWatch告警：
 
 ```
-请帮我为刚才部署的两个EC2实例批量创建CloudWatch告警，当CPU使用率超过80%持续1分钟时触发
+请帮我为刚才部署的两个EC2实例批量创建CloudWatch告警，当CPU使用率超过20%持续1分钟时触发
 ```
 
 2. 按照Amazon Q CLI提供的指导创建告警。

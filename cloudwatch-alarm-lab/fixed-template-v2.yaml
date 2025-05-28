@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'CloudWatch Alarm Lab - Deploys two EC2 instances for alarm configuration'
+Description: 'CloudWatch Alarm Lab - Deploys two EC2 instances for alarm configuration (Fixed Version)'
 
 Parameters:
   InstanceType:
@@ -118,9 +118,33 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
           yum update -y
-          yum install -y httpd stress-ng
-          systemctl start httpd
-          systemctl enable httpd
+          yum install -y httpd stress-ng php php-cli
+          
+          # Create a simple bash script to run stress-ng with higher CPU load
+          cat > /usr/local/bin/run-stress.sh << 'EOF'
+          #!/bin/bash
+          # Run stress-ng with higher CPU load (using 2 CPU cores at 90% load)
+          /usr/bin/stress-ng --cpu 2 --cpu-load 90 --timeout 600s > /tmp/stress.log 2>&1 &
+          echo $! > /tmp/cpu_load_pid
+          chmod 666 /tmp/cpu_load_pid
+          echo "Started stress-ng with PID: $(cat /tmp/cpu_load_pid)"
+          EOF
+          
+          # Create a simple bash script to stop stress-ng
+          cat > /usr/local/bin/stop-stress.sh << 'EOF'
+          #!/bin/bash
+          if [ -f /tmp/cpu_load_pid ]; then
+            kill -9 $(cat /tmp/cpu_load_pid)
+            rm -f /tmp/cpu_load_pid
+            echo "Process stopped"
+          else
+            echo "No process running"
+          fi
+          EOF
+          
+          # Make scripts executable
+          chmod 755 /usr/local/bin/run-stress.sh
+          chmod 755 /usr/local/bin/stop-stress.sh
           
           # Create CPU load test page
           cat > /var/www/html/index.html << 'EOF'
@@ -154,6 +178,7 @@ Resources:
                   </div>
                   
                   <div id="response"></div>
+                  <div id="cpu-status"></div>
                   
                   <script>
                       function startLoad() {
@@ -166,6 +191,9 @@ Resources:
                               .then(response => response.text())
                               .then(data => {
                                   document.getElementById('response').innerHTML = data;
+                                  
+                                  // Start periodic updates
+                                  updateCpuStatus();
                                   
                                   // Auto-update status after 10 minutes
                                   setTimeout(function() {
@@ -189,69 +217,52 @@ Resources:
                                   document.getElementById('response').innerHTML = data;
                               });
                       }
+                      
+                      function updateCpuStatus() {
+                          fetch('/cpu-status.php')
+                              .then(response => response.text())
+                              .then(data => {
+                                  document.getElementById('cpu-status').innerHTML = data;
+                                  // Continue updating every 5 seconds if test is running
+                                  if (document.getElementById('stopBtn').disabled === false) {
+                                      setTimeout(updateCpuStatus, 5000);
+                                  }
+                              });
+                      }
                   </script>
               </div>
           </body>
           </html>
           EOF
           
-          # Create PHP scripts to start and stop CPU load with error logging
+          # Create PHP scripts to start and stop CPU load
           cat > /var/www/html/start-load.php << 'EOF'
           <?php
           error_reporting(E_ALL);
           ini_set('display_errors', 1);
           
-          // Check if stress-ng is installed
-          $stress_check = shell_exec('which stress-ng 2>&1');
-          if (empty($stress_check) || strpos($stress_check, 'no stress-ng') !== false) {
-              echo "Error: stress-ng not found. Installing...<br>";
-              echo "<pre>" . shell_exec('sudo yum install -y stress-ng 2>&1') . "</pre>";
-          }
+          // Kill any existing stress-ng processes first
+          shell_exec('pkill -f stress-ng 2>/dev/null');
           
-          // Create a test file to check write permissions
-          $test_file = '/tmp/php_test_' . time() . '.txt';
-          $write_test = @file_put_contents($test_file, 'test');
-          if ($write_test === false) {
-              echo "Error: PHP cannot write to /tmp directory<br>";
-              echo "Permissions on /tmp:<br>";
-              echo "<pre>" . shell_exec('ls -la /tmp') . "</pre>";
-          } else {
-              unlink($test_file);
-              echo "PHP can write to /tmp directory<br>";
-          }
+          $output = shell_exec('/usr/local/bin/run-stress.sh 2>&1');
+          echo "Command executed.<br>";
+          echo "Output: <pre>$output</pre>";
           
-          // Try to run stress-ng with exec() and capture output
-          $output = [];
-          $return_var = 0;
-          exec('stress-ng --cpu 1 --timeout 10s 2>&1', $output, $return_var);
-          echo "Test run of stress-ng (short test):<br>";
-          echo "Return code: $return_var<br>";
-          echo "Output: <pre>" . implode("\n", $output) . "</pre><br>";
-          
-          // Now try to start the actual stress test
-          $output = [];
-          $return_var = 0;
-          exec('nohup stress-ng --cpu 1 --timeout 600s > /tmp/stress.log 2>&1 & echo $!', $output, $return_var);
-          
-          if ($return_var !== 0) {
-              echo "Error executing stress-ng. Return code: $return_var<br>";
-              echo "Error details:<br>";
-              echo "<pre>" . shell_exec('tail -20 /tmp/stress.log 2>&1') . "</pre>";
-          } else {
-              $pid = $output[0];
-              file_put_contents('/tmp/cpu_load_pid', $pid);
-              echo "CPU load started with PID: $pid<br>";
-              echo "Command output:<br>";
-              echo "<pre>" . shell_exec('ps aux | grep stress-ng') . "</pre>";
+          // Verify the process is running
+          sleep(2);
+          if (file_exists('/tmp/cpu_load_pid')) {
+              $pid = file_get_contents('/tmp/cpu_load_pid');
+              $ps_output = shell_exec("ps -p $pid");
+              echo "Process status: <pre>$ps_output</pre>";
               
-              // Check if process is actually running
-              sleep(1);
-              $process_check = shell_exec("ps -p $pid");
-              if (strpos($process_check, $pid) === false) {
-                  echo "Warning: Process $pid not found after starting. It may have failed to start.<br>";
-              } else {
-                  echo "Process verified as running.<br>";
-              }
+              // Show initial CPU usage
+              echo "Initial CPU usage: <pre>";
+              echo shell_exec("top -b -n 1 | head -20");
+              echo "</pre>";
+              
+              echo "<p>CPU status will update automatically every 5 seconds.</p>";
+          } else {
+              echo "Warning: PID file not created. Process may not have started.";
           }
           ?>
           EOF
@@ -261,39 +272,56 @@ Resources:
           error_reporting(E_ALL);
           ini_set('display_errors', 1);
           
+          $output = shell_exec('/usr/local/bin/stop-stress.sh 2>&1');
+          echo "Command executed.<br>";
+          echo "Output: <pre>$output</pre>";
+          
+          // Show CPU usage after stopping
+          echo "Current CPU usage after stopping: <pre>";
+          echo shell_exec("top -b -n 1 | head -20");
+          echo "</pre>";
+          ?>
+          EOF
+          
+          # Create CPU status update script
+          cat > /var/www/html/cpu-status.php << 'EOF'
+          <?php
+          error_reporting(E_ALL);
+          ini_set('display_errors', 1);
+          
+          echo "<h3>Updated CPU Status (as of " . date('H:i:s') . ")</h3>";
+          
+          // Check if process is running
           if (file_exists('/tmp/cpu_load_pid')) {
               $pid = file_get_contents('/tmp/cpu_load_pid');
-              $output = [];
-              $return_var = 0;
-              exec("kill -9 $pid 2>&1", $output, $return_var);
+              $ps_output = shell_exec("ps -p $pid");
               
-              echo "Attempted to kill process $pid<br>";
-              echo "Return code: $return_var<br>";
-              echo "Output: <pre>" . implode("\n", $output) . "</pre><br>";
-              
-              if ($return_var === 0) {
-                  unlink('/tmp/cpu_load_pid');
-                  echo "CPU load stopped successfully";
+              if (strpos($ps_output, $pid) !== false) {
+                  echo "<p style='color:green'>✓ Process is running with PID: $pid</p>";
+                  
+                  // Show CPU usage
+                  echo "<h4>Current CPU Usage:</h4>";
+                  echo "<pre>";
+                  echo shell_exec("top -b -n 1 | head -20");
+                  echo "</pre>";
+                  
+                  // Show CPU load average
+                  $load = sys_getloadavg();
+                  echo "<p>Load average: <strong>" . $load[0] . ", " . $load[1] . ", " . $load[2] . "</strong></p>";
               } else {
-                  echo "Error stopping CPU load<br>";
-                  echo "Process status:<br>";
-                  echo "<pre>" . shell_exec("ps -p $pid") . "</pre>";
+                  echo "<p style='color:red'>✗ Process with PID $pid is not running</p>";
               }
           } else {
-              echo "No CPU load running (no PID file found)";
+              echo "<p>No CPU load test is currently running</p>";
           }
           ?>
           EOF
           
-          # Install PHP and required modules
-          yum install -y php php-cli
-          
           # Set proper permissions
           chmod 755 /var/www/html/*.php
-          chown apache:apache /var/www/html/*.php
           chmod 777 /tmp
           
-          # Configure SELinux to allow httpd to execute shell commands and write to /tmp
+          # Configure SELinux if enabled
           if command -v sestatus &> /dev/null && sestatus | grep -q "SELinux status: *enabled"; then
             yum install -y policycoreutils-python
             setsebool -P httpd_can_network_connect 1
@@ -303,47 +331,9 @@ Resources:
             restorecon -Rv /tmp
           fi
           
-          # Create a test script to verify permissions
-          cat > /var/www/html/test-permissions.php << 'EOF'
-          <?php
-          error_reporting(E_ALL);
-          ini_set('display_errors', 1);
-          
-          echo "<h1>PHP Environment Test</h1>";
-          
-          echo "<h2>PHP Version</h2>";
-          echo "<pre>" . phpversion() . "</pre>";
-          
-          echo "<h2>Current User</h2>";
-          echo "<pre>" . shell_exec('whoami') . "</pre>";
-          
-          echo "<h2>SELinux Status</h2>";
-          echo "<pre>" . shell_exec('sestatus 2>&1') . "</pre>";
-          
-          echo "<h2>Installed Packages</h2>";
-          echo "<pre>" . shell_exec('rpm -qa | grep -E "stress-ng|php|httpd"') . "</pre>";
-          
-          echo "<h2>Directory Permissions</h2>";
-          echo "/tmp: <pre>" . shell_exec('ls -la /tmp | head -5') . "</pre>";
-          echo "/var/www/html: <pre>" . shell_exec('ls -la /var/www/html') . "</pre>";
-          
-          echo "<h2>Test Command Execution</h2>";
-          $output = [];
-          $return_var = 0;
-          exec('echo "Test command execution"', $output, $return_var);
-          echo "Return code: $return_var<br>";
-          echo "Output: <pre>" . implode("\n", $output) . "</pre>";
-          
-          echo "<h2>Available Functions</h2>";
-          $functions = array('exec', 'shell_exec', 'system', 'passthru');
-          foreach ($functions as $function) {
-              echo "$function: " . (function_exists($function) ? "Available" : "Disabled") . "<br>";
-          }
-          ?>
-          EOF
-          
-          # Restart Apache to apply changes
-          systemctl restart httpd
+          # Start Apache
+          systemctl start httpd
+          systemctl enable httpd
       Tags:
         - Key: Name
           Value: CloudWatch-Alarm-Lab-Instance-1
@@ -361,9 +351,33 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
           yum update -y
-          yum install -y httpd stress-ng
-          systemctl start httpd
-          systemctl enable httpd
+          yum install -y httpd stress-ng php php-cli
+          
+          # Create a simple bash script to run stress-ng with higher CPU load
+          cat > /usr/local/bin/run-stress.sh << 'EOF'
+          #!/bin/bash
+          # Run stress-ng with higher CPU load (using 2 CPU cores at 90% load)
+          /usr/bin/stress-ng --cpu 2 --cpu-load 90 --timeout 600s > /tmp/stress.log 2>&1 &
+          echo $! > /tmp/cpu_load_pid
+          chmod 666 /tmp/cpu_load_pid
+          echo "Started stress-ng with PID: $(cat /tmp/cpu_load_pid)"
+          EOF
+          
+          # Create a simple bash script to stop stress-ng
+          cat > /usr/local/bin/stop-stress.sh << 'EOF'
+          #!/bin/bash
+          if [ -f /tmp/cpu_load_pid ]; then
+            kill -9 $(cat /tmp/cpu_load_pid)
+            rm -f /tmp/cpu_load_pid
+            echo "Process stopped"
+          else
+            echo "No process running"
+          fi
+          EOF
+          
+          # Make scripts executable
+          chmod 755 /usr/local/bin/run-stress.sh
+          chmod 755 /usr/local/bin/stop-stress.sh
           
           # Create CPU load test page
           cat > /var/www/html/index.html << 'EOF'
@@ -397,6 +411,7 @@ Resources:
                   </div>
                   
                   <div id="response"></div>
+                  <div id="cpu-status"></div>
                   
                   <script>
                       function startLoad() {
@@ -409,6 +424,9 @@ Resources:
                               .then(response => response.text())
                               .then(data => {
                                   document.getElementById('response').innerHTML = data;
+                                  
+                                  // Start periodic updates
+                                  updateCpuStatus();
                                   
                                   // Auto-update status after 10 minutes
                                   setTimeout(function() {
@@ -432,69 +450,52 @@ Resources:
                                   document.getElementById('response').innerHTML = data;
                               });
                       }
+                      
+                      function updateCpuStatus() {
+                          fetch('/cpu-status.php')
+                              .then(response => response.text())
+                              .then(data => {
+                                  document.getElementById('cpu-status').innerHTML = data;
+                                  // Continue updating every 5 seconds if test is running
+                                  if (document.getElementById('stopBtn').disabled === false) {
+                                      setTimeout(updateCpuStatus, 5000);
+                                  }
+                              });
+                      }
                   </script>
               </div>
           </body>
           </html>
           EOF
           
-          # Create PHP scripts to start and stop CPU load with error logging
+          # Create PHP scripts to start and stop CPU load
           cat > /var/www/html/start-load.php << 'EOF'
           <?php
           error_reporting(E_ALL);
           ini_set('display_errors', 1);
           
-          // Check if stress-ng is installed
-          $stress_check = shell_exec('which stress-ng 2>&1');
-          if (empty($stress_check) || strpos($stress_check, 'no stress-ng') !== false) {
-              echo "Error: stress-ng not found. Installing...<br>";
-              echo "<pre>" . shell_exec('sudo yum install -y stress-ng 2>&1') . "</pre>";
-          }
+          // Kill any existing stress-ng processes first
+          shell_exec('pkill -f stress-ng 2>/dev/null');
           
-          // Create a test file to check write permissions
-          $test_file = '/tmp/php_test_' . time() . '.txt';
-          $write_test = @file_put_contents($test_file, 'test');
-          if ($write_test === false) {
-              echo "Error: PHP cannot write to /tmp directory<br>";
-              echo "Permissions on /tmp:<br>";
-              echo "<pre>" . shell_exec('ls -la /tmp') . "</pre>";
-          } else {
-              unlink($test_file);
-              echo "PHP can write to /tmp directory<br>";
-          }
+          $output = shell_exec('/usr/local/bin/run-stress.sh 2>&1');
+          echo "Command executed.<br>";
+          echo "Output: <pre>$output</pre>";
           
-          // Try to run stress-ng with exec() and capture output
-          $output = [];
-          $return_var = 0;
-          exec('stress-ng --cpu 1 --timeout 10s 2>&1', $output, $return_var);
-          echo "Test run of stress-ng (short test):<br>";
-          echo "Return code: $return_var<br>";
-          echo "Output: <pre>" . implode("\n", $output) . "</pre><br>";
-          
-          // Now try to start the actual stress test
-          $output = [];
-          $return_var = 0;
-          exec('nohup stress-ng --cpu 1 --timeout 600s > /tmp/stress.log 2>&1 & echo $!', $output, $return_var);
-          
-          if ($return_var !== 0) {
-              echo "Error executing stress-ng. Return code: $return_var<br>";
-              echo "Error details:<br>";
-              echo "<pre>" . shell_exec('tail -20 /tmp/stress.log 2>&1') . "</pre>";
-          } else {
-              $pid = $output[0];
-              file_put_contents('/tmp/cpu_load_pid', $pid);
-              echo "CPU load started with PID: $pid<br>";
-              echo "Command output:<br>";
-              echo "<pre>" . shell_exec('ps aux | grep stress-ng') . "</pre>";
+          // Verify the process is running
+          sleep(2);
+          if (file_exists('/tmp/cpu_load_pid')) {
+              $pid = file_get_contents('/tmp/cpu_load_pid');
+              $ps_output = shell_exec("ps -p $pid");
+              echo "Process status: <pre>$ps_output</pre>";
               
-              // Check if process is actually running
-              sleep(1);
-              $process_check = shell_exec("ps -p $pid");
-              if (strpos($process_check, $pid) === false) {
-                  echo "Warning: Process $pid not found after starting. It may have failed to start.<br>";
-              } else {
-                  echo "Process verified as running.<br>";
-              }
+              // Show initial CPU usage
+              echo "Initial CPU usage: <pre>";
+              echo shell_exec("top -b -n 1 | head -20");
+              echo "</pre>";
+              
+              echo "<p>CPU status will update automatically every 5 seconds.</p>";
+          } else {
+              echo "Warning: PID file not created. Process may not have started.";
           }
           ?>
           EOF
@@ -504,39 +505,56 @@ Resources:
           error_reporting(E_ALL);
           ini_set('display_errors', 1);
           
+          $output = shell_exec('/usr/local/bin/stop-stress.sh 2>&1');
+          echo "Command executed.<br>";
+          echo "Output: <pre>$output</pre>";
+          
+          // Show CPU usage after stopping
+          echo "Current CPU usage after stopping: <pre>";
+          echo shell_exec("top -b -n 1 | head -20");
+          echo "</pre>";
+          ?>
+          EOF
+          
+          # Create CPU status update script
+          cat > /var/www/html/cpu-status.php << 'EOF'
+          <?php
+          error_reporting(E_ALL);
+          ini_set('display_errors', 1);
+          
+          echo "<h3>Updated CPU Status (as of " . date('H:i:s') . ")</h3>";
+          
+          // Check if process is running
           if (file_exists('/tmp/cpu_load_pid')) {
               $pid = file_get_contents('/tmp/cpu_load_pid');
-              $output = [];
-              $return_var = 0;
-              exec("kill -9 $pid 2>&1", $output, $return_var);
+              $ps_output = shell_exec("ps -p $pid");
               
-              echo "Attempted to kill process $pid<br>";
-              echo "Return code: $return_var<br>";
-              echo "Output: <pre>" . implode("\n", $output) . "</pre><br>";
-              
-              if ($return_var === 0) {
-                  unlink('/tmp/cpu_load_pid');
-                  echo "CPU load stopped successfully";
+              if (strpos($ps_output, $pid) !== false) {
+                  echo "<p style='color:green'>✓ Process is running with PID: $pid</p>";
+                  
+                  // Show CPU usage
+                  echo "<h4>Current CPU Usage:</h4>";
+                  echo "<pre>";
+                  echo shell_exec("top -b -n 1 | head -20");
+                  echo "</pre>";
+                  
+                  // Show CPU load average
+                  $load = sys_getloadavg();
+                  echo "<p>Load average: <strong>" . $load[0] . ", " . $load[1] . ", " . $load[2] . "</strong></p>";
               } else {
-                  echo "Error stopping CPU load<br>";
-                  echo "Process status:<br>";
-                  echo "<pre>" . shell_exec("ps -p $pid") . "</pre>";
+                  echo "<p style='color:red'>✗ Process with PID $pid is not running</p>";
               }
           } else {
-              echo "No CPU load running (no PID file found)";
+              echo "<p>No CPU load test is currently running</p>";
           }
           ?>
           EOF
           
-          # Install PHP and required modules
-          yum install -y php php-cli
-          
           # Set proper permissions
           chmod 755 /var/www/html/*.php
-          chown apache:apache /var/www/html/*.php
           chmod 777 /tmp
           
-          # Configure SELinux to allow httpd to execute shell commands and write to /tmp
+          # Configure SELinux if enabled
           if command -v sestatus &> /dev/null && sestatus | grep -q "SELinux status: *enabled"; then
             yum install -y policycoreutils-python
             setsebool -P httpd_can_network_connect 1
@@ -546,47 +564,9 @@ Resources:
             restorecon -Rv /tmp
           fi
           
-          # Create a test script to verify permissions
-          cat > /var/www/html/test-permissions.php << 'EOF'
-          <?php
-          error_reporting(E_ALL);
-          ini_set('display_errors', 1);
-          
-          echo "<h1>PHP Environment Test</h1>";
-          
-          echo "<h2>PHP Version</h2>";
-          echo "<pre>" . phpversion() . "</pre>";
-          
-          echo "<h2>Current User</h2>";
-          echo "<pre>" . shell_exec('whoami') . "</pre>";
-          
-          echo "<h2>SELinux Status</h2>";
-          echo "<pre>" . shell_exec('sestatus 2>&1') . "</pre>";
-          
-          echo "<h2>Installed Packages</h2>";
-          echo "<pre>" . shell_exec('rpm -qa | grep -E "stress-ng|php|httpd"') . "</pre>";
-          
-          echo "<h2>Directory Permissions</h2>";
-          echo "/tmp: <pre>" . shell_exec('ls -la /tmp | head -5') . "</pre>";
-          echo "/var/www/html: <pre>" . shell_exec('ls -la /var/www/html') . "</pre>";
-          
-          echo "<h2>Test Command Execution</h2>";
-          $output = [];
-          $return_var = 0;
-          exec('echo "Test command execution"', $output, $return_var);
-          echo "Return code: $return_var<br>";
-          echo "Output: <pre>" . implode("\n", $output) . "</pre>";
-          
-          echo "<h2>Available Functions</h2>";
-          $functions = array('exec', 'shell_exec', 'system', 'passthru');
-          foreach ($functions as $function) {
-              echo "$function: " . (function_exists($function) ? "Available" : "Disabled") . "<br>";
-          }
-          ?>
-          EOF
-          
-          # Restart Apache to apply changes
-          systemctl restart httpd
+          # Start Apache
+          systemctl start httpd
+          systemctl enable httpd
       Tags:
         - Key: Name
           Value: CloudWatch-Alarm-Lab-Instance-2
@@ -615,18 +595,6 @@ Outputs:
     Value: !Sub "http://${EC2Instance2.PublicDnsName}"
     Export:
       Name: !Sub "${AWS::StackName}-Instance2URL"
-
-  Instance1TestURL:
-    Description: URL for the first EC2 instance permissions test page
-    Value: !Sub "http://${EC2Instance1.PublicDnsName}/test-permissions.php"
-    Export:
-      Name: !Sub "${AWS::StackName}-Instance1TestURL"
-
-  Instance2TestURL:
-    Description: URL for the second EC2 instance permissions test page
-    Value: !Sub "http://${EC2Instance2.PublicDnsName}/test-permissions.php"
-    Export:
-      Name: !Sub "${AWS::StackName}-Instance2TestURL"
 
   VPCId:
     Description: ID of the VPC

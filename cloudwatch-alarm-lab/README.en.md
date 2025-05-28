@@ -66,7 +66,7 @@ Please list all EC2 instances in my current account and their status
 1. In the Amazon Q CLI session, request help to batch create CloudWatch alarms:
 
 ```
-Please help me batch create CloudWatch alarms for the two EC2 instances I just deployed, to trigger when CPU utilization exceeds 80% for 1 minute
+Please help me batch create CloudWatch alarms for the two EC2 instances I just deployed, to trigger when CPU utilization exceeds 20% for 1 minute
 ```
 
 2. Follow the guidance provided by Amazon Q CLI to create the alarms.

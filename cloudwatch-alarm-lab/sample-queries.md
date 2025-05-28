@@ -19,7 +19,7 @@
 ## 创建CloudWatch告警
 
 ```
-为实例ID为i-xxxxxxxxxx和i-yyyyyyyyyy的EC2实例批量创建CloudWatch告警，当CPU使用率超过80%持续1分钟时触发
+为实例ID为i-xxxxxxxxxx和i-yyyyyyyyyy的EC2实例批量创建CloudWatch告警，当CPU使用率超过20%持续1分钟时触发
 ```
 
 ```
@@ -27,7 +27,7 @@
 ```
 
 ```
-创建一个CloudWatch告警，当EC2实例的CPU使用率超过80%持续1分钟时发送通知
+创建一个CloudWatch告警，当EC2实例的CPU使用率超过20%持续1分钟时发送通知
 ```
 
 ## 创建SNS主题和订阅
