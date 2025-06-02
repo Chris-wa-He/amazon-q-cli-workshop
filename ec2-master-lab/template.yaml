@@ -1,0 +1,524 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'EC2 Full-Stack Operations Master Lab - Combines connectivity, network analysis, and CloudWatch alarm features'
+
+Parameters:
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+    ConstraintDescription: Must be a valid EC2 instance type.
+  
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Description: Latest Amazon Linux 2 AMI from SSM Parameter Store
+
+Resources:
+  # VPC and Network Configuration
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: EC2MasterLabVPC
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: EC2MasterLabIGW
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnet
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: EC2MasterLabPublicSubnet
+
+  # Private Subnet
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: EC2MasterLabPrivateSubnet
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: EC2MasterLabPublicRT
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: EC2MasterLabPrivateRT
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Restrictive Network ACL
+  RestrictiveNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: EC2MasterLabRestrictiveACL
+
+  # Network ACL Rules - Only allow HTTP and ephemeral ports
+  InboundHTTPRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref RestrictiveNetworkAcl
+      RuleNumber: 100
+      Protocol: 6
+      RuleAction: allow
+      Egress: false
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: 80
+        To: 80
+
+  InboundEphemeralRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref RestrictiveNetworkAcl
+      RuleNumber: 200
+      Protocol: 6
+      RuleAction: allow
+      Egress: false
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: 1024
+        To: 65535
+
+  OutboundHTTPRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref RestrictiveNetworkAcl
+      RuleNumber: 100
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: 80
+        To: 80
+
+  OutboundHTTPSRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref RestrictiveNetworkAcl
+      RuleNumber: 110
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: 443
+        To: 443
+
+  OutboundEphemeralRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref RestrictiveNetworkAcl
+      RuleNumber: 200
+      Protocol: 6
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+      PortRange:
+        From: 1024
+        To: 65535
+
+  SubnetNetworkAclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      NetworkAclId: !Ref RestrictiveNetworkAcl
+
+  # Security Group - Only allows HTTP access initially
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EC2 instance
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: EC2MasterLabSG
+
+  # IAM Role for EC2 Instance
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Path: /
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref EC2InstanceRole
+
+  # EC2 Instance with CPU Load Test Web Page
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      SubnetId: !Ref PublicSubnet
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum update -y
+          yum install -y httpd php php-cli stress-ng
+          
+          # Create CPU load test page
+          cat > /var/www/html/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>EC2 Master Lab - CPU Load Test</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 0; padding: 20px; line-height: 1.6; }
+                  .container { max-width: 800px; margin: 0 auto; padding: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+                  h1 { color: #333; }
+                  button { background-color: #4CAF50; border: none; color: white; padding: 10px 20px; text-align: center; 
+                          text-decoration: none; display: inline-block; font-size: 16px; margin: 4px 2px; cursor: pointer; border-radius: 4px; }
+                  button.stop { background-color: #f44336; }
+                  .status { margin-top: 20px; padding: 10px; border-radius: 4px; }
+                  .running { background-color: #ffeb3b; }
+                  .stopped { background-color: #e0e0e0; }
+                  pre { background-color: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>EC2 Full-Stack Operations Master Lab</h1>
+                  <p>Congratulations! You've successfully connected to the EC2 instance.</p>
+                  <p>Use the buttons below to start or stop a CPU load test. This will help trigger CloudWatch alarms.</p>
+                  
+                  <button id="startBtn" onclick="startLoad()">Start CPU Load (10 minutes)</button>
+                  <button id="stopBtn" class="stop" onclick="stopLoad()" disabled>Stop CPU Load</button>
+                  
+                  <div id="status" class="status stopped">
+                      Status: No CPU load test running
+                  </div>
+                  
+                  <div id="response"></div>
+                  
+                  <script>
+                      function startLoad() {
+                          document.getElementById('startBtn').disabled = true;
+                          document.getElementById('stopBtn').disabled = false;
+                          document.getElementById('status').innerHTML = 'Status: Starting CPU load test...';
+                          document.getElementById('status').className = 'status running';
+                          
+                          fetch('/direct-stress.php')
+                              .then(response => response.text())
+                              .then(data => {
+                                  document.getElementById('response').innerHTML = data;
+                              });
+                      }
+                      
+                      function stopLoad() {
+                          document.getElementById('startBtn').disabled = false;
+                          document.getElementById('stopBtn').disabled = true;
+                          document.getElementById('status').innerHTML = 'Status: Stopping CPU load test...';
+                          document.getElementById('status').className = 'status stopped';
+                          
+                          fetch('/stop-stress.php')
+                              .then(response => response.text())
+                              .then(data => {
+                                  document.getElementById('response').innerHTML = data;
+                              });
+                      }
+                  </script>
+              </div>
+          </body>
+          </html>
+          EOF
+          
+          # Create direct stress PHP script
+          cat > /var/www/html/direct-stress.php << 'EOF'
+          <?php
+          error_reporting(E_ALL);
+          ini_set('display_errors', 1);
+          
+          // Clean up any existing stress processes
+          shell_exec('pkill -f stress-ng 2>/dev/null');
+          shell_exec('pkill -f stress 2>/dev/null');
+          sleep(1);
+          
+          // Check if stress-ng is installed
+          $stress_check = shell_exec('which stress-ng 2>&1');
+          echo "<h3>Environment Check</h3>";
+          echo "stress-ng path: " . ($stress_check ? $stress_check : "Not found") . "<br>";
+          
+          // Try different CPU stress tools
+          $methods = [
+              // Method 1: stress-ng using yes method (usually works well)
+              "stress-ng --cpu $(nproc) --cpu-method yes --timeout 600s > /tmp/stress.log 2>&1 & echo $!",
+              
+              // Method 2: Use native yes command (available on almost all systems)
+              "for i in $(seq 1 $(nproc)); do yes > /dev/null & done; echo $!",
+              
+              // Method 3: Use dd command to generate CPU load
+              "for i in $(seq 1 $(nproc)); do dd if=/dev/zero of=/dev/null & done; echo $!"
+          ];
+          
+          // Try the first method
+          echo "<h3>Starting CPU Load Test</h3>";
+          echo "Trying Method 1: stress-ng with yes method<br>";
+          $pid = trim(shell_exec($methods[0]));
+          echo "Process ID: $pid<br>";
+          
+          // Save PID to file
+          file_put_contents('/tmp/cpu_load_pid', $pid);
+          chmod('/tmp/cpu_load_pid', 0666);
+          
+          // Wait for process to start
+          sleep(2);
+          
+          // Check if process is running
+          $ps_output = shell_exec("ps -p $pid");
+          if (strpos($ps_output, $pid) !== false) {
+              echo "<div style='color:green; font-weight:bold;'>✓ Method 1 started successfully</div>";
+          } else {
+              echo "<div style='color:red;'>✗ Method 1 failed to start</div>";
+              
+              // Try method 2
+              echo "Trying Method 2: Multiple yes processes<br>";
+              shell_exec($methods[1]);
+              echo "<div style='color:blue;'>Started yes processes</div>";
+              
+              // Save a marker file indicating method 2 was used
+              file_put_contents('/tmp/using_method2', '1');
+          }
+          
+          // Show current processes
+          echo "<h3>Currently Running Processes</h3>";
+          echo "<pre>";
+          echo shell_exec("ps aux | grep -E 'stress|yes|dd' | grep -v grep");
+          echo "</pre>";
+          
+          // Show current CPU load
+          $load = sys_getloadavg();
+          echo "<h3>Current System Load</h3>";
+          echo "1-minute average load: <strong>" . $load[0] . "</strong><br>";
+          echo "5-minute average load: <strong>" . $load[1] . "</strong><br>";
+          echo "15-minute average load: <strong>" . $load[2] . "</strong><br>";
+          
+          // Show CPU usage
+          echo "<h3>CPU Usage</h3>";
+          $cpu_usage = shell_exec("top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'");
+          echo "CPU usage: <strong>" . trim($cpu_usage) . "%</strong><br>";
+          
+          echo "<h3>Test Results</h3>";
+          echo "<div id='result' style='padding: 10px; background-color: #f0f0f0; border-left: 4px solid #4CAF50;'>";
+          echo "CPU load test has started. Please wait 1-2 minutes before checking CloudWatch metrics.<br>";
+          echo "If you see the system load starting to increase, the test is working.<br>";
+          echo "</div>";
+          
+          // Add auto-refresh
+          echo "<script>
+          setTimeout(function() {
+              location.reload();
+          }, 30000); // Auto-refresh after 30 seconds
+          </script>";
+          
+          echo "<p>Page will auto-refresh after 30 seconds to show latest status</p>";
+          ?>
+          EOF
+          
+          # Create stop stress PHP script
+          cat > /var/www/html/stop-stress.php << 'EOF'
+          <?php
+          error_reporting(E_ALL);
+          ini_set('display_errors', 1);
+          
+          echo "<h3>Stopping CPU Load Test</h3>";
+          
+          // Stop all possible CPU load processes
+          shell_exec('pkill -f stress-ng 2>/dev/null');
+          shell_exec('pkill -f "yes > /dev/null" 2>/dev/null');
+          shell_exec('pkill -f "dd if=/dev/zero" 2>/dev/null');
+          
+          // Check if there is a PID file
+          if (file_exists('/tmp/cpu_load_pid')) {
+              $pid = file_get_contents('/tmp/cpu_load_pid');
+              shell_exec("kill -9 $pid 2>/dev/null");
+              unlink('/tmp/cpu_load_pid');
+              echo "Terminated Process ID: $pid<br>";
+          }
+          
+          // Check if method 2 was used
+          if (file_exists('/tmp/using_method2')) {
+              unlink('/tmp/using_method2');
+              echo "Terminated all yes processes<br>";
+          }
+          
+          // Show current processes
+          echo "<h3>Currently Running Processes</h3>";
+          echo "<pre>";
+          echo shell_exec("ps aux | grep -E 'stress|yes|dd' | grep -v grep");
+          echo "</pre>";
+          
+          // Show current CPU load
+          $load = sys_getloadavg();
+          echo "<h3>Current System Load</h3>";
+          echo "1-minute average load: <strong>" . $load[0] . "</strong><br>";
+          echo "5-minute average load: <strong>" . $load[1] . "</strong><br>";
+          echo "15-minute average load: <strong>" . $load[2] . "</strong><br>";
+          
+          // Show CPU usage
+          echo "<h3>CPU Usage</h3>";
+          $cpu_usage = shell_exec("top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'");
+          echo "CPU usage: <strong>" . trim($cpu_usage) . "%</strong><br>";
+          
+          echo "<h3>Test Results</h3>";
+          echo "<div id='result' style='padding: 10px; background-color: #f0f0f0; border-left: 4px solid #f44336;'>";
+          echo "CPU load test has been stopped.<br>";
+          echo "System load should return to normal within a few minutes.<br>";
+          echo "</div>";
+          ?>
+          EOF
+          
+          # Set proper permissions
+          chmod 755 /var/www/html/*.php
+          chmod 777 /tmp
+          
+          # Start Apache
+          systemctl start httpd
+          systemctl enable httpd
+      Tags:
+        - Key: Name
+          Value: EC2MasterLabInstance
+
+  # EC2 Instance in Private Subnet (for network analysis)
+  PrivateEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      SubnetId: !Ref PrivateSubnet
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<html><body><h1>Private EC2 Instance</h1><p>This is a private instance for network analysis.</p></body></html>" > /var/www/html/index.html
+      Tags:
+        - Key: Name
+          Value: EC2MasterLabPrivateInstance
+
+Outputs:
+  InstanceId:
+    Description: ID of the EC2 instance
+    Value: !Ref EC2Instance
+    Export:
+      Name: !Sub "${AWS::StackName}-InstanceId"
+
+  PrivateInstanceId:
+    Description: ID of the private EC2 instance
+    Value: !Ref PrivateEC2Instance
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateInstanceId"
+
+  PublicIP:
+    Description: Public IP address of the EC2 instance
+    Value: !GetAtt EC2Instance.PublicIp
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicIP"
+
+  InstanceURL:
+    Description: URL for the EC2 instance CPU load test page
+    Value: !Sub "http://${EC2Instance.PublicDnsName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-InstanceURL"
+
+  VpcId:
+    Description: ID of the VPC
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${AWS::StackName}-VPCId"
+
+  SecurityGroupId:
+    Description: ID of the security group
+    Value: !Ref EC2SecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-SecurityGroupId"
+
+  NetworkAclId:
+    Description: ID of the network ACL
+    Value: !Ref RestrictiveNetworkAcl
+    Export:
+      Name: !Sub "${AWS::StackName}-NetworkAclId"
