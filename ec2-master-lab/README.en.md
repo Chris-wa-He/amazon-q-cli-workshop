@@ -23,8 +23,8 @@ Before starting this lab, please ensure you have:
 
 This lab requires specific IAM permissions, which we've separated into two roles:
 
-1. **CloudFormation Deployment Role** - For creating the CloudFormation resources needed for the lab
-2. **Operations Role** - For performing operational tasks during the lab
+- **CloudFormation Deployment Role** - For creating the CloudFormation resources needed for the lab
+- **Operations Role** - For performing operational tasks during the lab
 
 You can use the provided IAM role templates to create these roles:
 
@@ -51,14 +51,12 @@ This lab will deploy the following resources:
 - An EC2 instance in the private subnet for network analysis
 - Security groups (initially not allowing SSH access)
 - Network ACLs (restricting public access)
-- IAM roles and instance profiles
 
 ## Lab Steps
 
 ### Step 1: Deploy CloudFormation Template
 
-1. Download the `template.yaml` file from this lab directory
-2. Deploy the CloudFormation template using AWS CLI or AWS Management Console:
+Deploy the CloudFormation template to create the resources needed for the lab:
 
 ```bash
 aws cloudformation create-stack \
@@ -67,35 +65,66 @@ aws cloudformation create-stack \
   --capabilities CAPABILITY_IAM
 ```
 
-3. Wait for the stack creation to complete (approximately 5-10 minutes)
+Wait for the stack creation to complete (approximately 5-10 minutes). You can check the deployment status using:
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name ec2-master-lab \
+  --query "Stacks[0].StackStatus"
+```
 
 ### Step 2: Diagnose and Solve EC2 Connection Issues
 
-1. Try to connect to the EC2 instance via SSH (this will fail):
+1. Get the EC2 instance URL:
 
 ```bash
-# Get the EC2 instance's public IP address
+aws cloudformation describe-stacks \
+  --stack-name ec2-master-lab \
+  --query "Stacks[0].Outputs[?OutputKey=='InstanceURL'].OutputValue" \
+  --output text
+```
+
+2. Open the URL in a browser to access the EC2 instance's CPU load test page, verifying network connectivity.
+   - If the page loads normally, it confirms that HTTP (port 80) access is working and the network is basically connected.
+
+3. Get the EC2 instance's public IP address:
+
+```bash
 aws cloudformation describe-stacks \
   --stack-name ec2-master-lab \
   --query "Stacks[0].Outputs[?OutputKey=='PublicIP'].OutputValue" \
   --output text
+```
 
-# Try SSH connection
+4. Try to connect to the EC2 instance via SSH (this will fail):
+
+```bash
 ssh ec2-user@<public-ip-address>
 ```
 
-2. Use Amazon Q CLI to diagnose connection issues:
+5. Use Amazon Q CLI to diagnose connection issues:
 
 ```bash
 q chat
 ```
 
-In Amazon Q CLI, ask:
+In Amazon Q CLI, you can ask:
+
 ```
-My EC2 instance cannot be connected via SSH, please help me diagnose the problem
+My EC2 instance is accessible via HTTP but cannot be connected via SSH, please help me diagnose the problem
 ```
 
-3. Following Amazon Q CLI's recommendations, modify the security group to allow SSH access:
+Amazon Q will analyze your environment and provide diagnostic results, potentially identifying issues such as:
+- Security group not allowing SSH port (22)
+- Network ACL restricting SSH traffic
+
+6. Continue the conversation with Amazon Q, asking how to resolve these issues:
+
+```
+How can I modify the security group and network ACL to allow SSH access?
+```
+
+Amazon Q will guide you through making the necessary changes. You'll need to get the security group ID and network ACL ID:
 
 ```bash
 # Get security group ID
@@ -104,35 +133,16 @@ aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='SecurityGroupId'].OutputValue" \
   --output text
 
-# Add SSH rule
-aws ec2 authorize-security-group-ingress \
-  --group-id <security-group-id> \
-  --protocol tcp \
-  --port 22 \
-  --cidr 0.0.0.0/0
-```
-
-4. Following Amazon Q CLI's recommendations, modify the network ACL to allow SSH access:
-
-```bash
 # Get network ACL ID
 aws cloudformation describe-stacks \
   --stack-name ec2-master-lab \
   --query "Stacks[0].Outputs[?OutputKey=='NetworkAclId'].OutputValue" \
   --output text
-
-# Add inbound SSH rule
-aws ec2 create-network-acl-entry \
-  --network-acl-id <network-acl-id> \
-  --ingress \
-  --rule-number 110 \
-  --protocol 6 \
-  --port-range From=22,To=22 \
-  --cidr-block 0.0.0.0/0 \
-  --rule-action allow
 ```
 
-5. Try SSH connection again to verify the issue is resolved:
+7. Follow Amazon Q's guidance to modify the security group and network ACL.
+
+8. Try SSH connection again to verify the issue is resolved:
 
 ```bash
 ssh ec2-user@<public-ip-address>
@@ -140,16 +150,19 @@ ssh ec2-user@<public-ip-address>
 
 ### Step 3: Analyze Network Architecture
 
-1. Use Amazon Q CLI to analyze network architecture:
+1. Use Amazon Q CLI to analyze your network architecture:
 
 ```bash
 q chat
 ```
 
-In Amazon Q CLI, ask:
+In Amazon Q CLI, you can ask:
+
 ```
 Analyze my VPC architecture, including subnets, route tables, and gateways
 ```
+
+Amazon Q will provide a detailed analysis of your VPC architecture.
 
 2. Request to generate a network architecture diagram:
 
@@ -157,10 +170,64 @@ Analyze my VPC architecture, including subnets, route tables, and gateways
 Generate a network architecture diagram based on my VPC resources
 ```
 
-3. Analyze the connection between public and private subnets:
+3. Further explore the network configuration:
 
 ```
 Analyze the connection between public and private subnets
+```
+
+4. **Challenge Step**: Request to generate a draw.io format network architecture diagram file:
+
+```
+Please generate a draw.io format network architecture diagram file that includes my VPC, subnets, route tables, security groups, and network ACLs
+```
+
+5. Save the generated draw.io file locally:
+
+```bash
+# Create a directory to save the architecture diagram
+mkdir -p ~/network-diagrams
+# Save the content to a file
+cat > ~/network-diagrams/vpc-architecture.drawio << 'EOF'
+[paste the draw.io content generated by Amazon Q]
+EOF
+```
+
+6. Try to open the file using draw.io or diagrams.net (you may encounter format errors):
+   - Visit https://app.diagrams.net/
+   - Choose to open an existing diagram
+   - Upload your saved vpc-architecture.drawio file
+
+7. If the file opens with errors, use Amazon Q CLI to fix the problem:
+
+```bash
+q chat
+```
+
+In Amazon Q CLI, you can ask:
+
+```
+I tried to open the network architecture diagram file you generated in draw.io, but encountered format errors. Please help me fix this file.
+```
+
+Amazon Q might suggest solutions such as:
+- Checking if the XML format is complete
+- Fixing specific format issues
+- Providing updated, compatible draw.io format content
+
+8. Fix the file according to Amazon Q's recommendations and try opening it again:
+
+```bash
+# Update the file with the fixed content
+cat > ~/network-diagrams/vpc-architecture-fixed.drawio << 'EOF'
+[paste the fixed content provided by Amazon Q]
+EOF
+```
+
+9. After successfully opening and viewing the network architecture diagram, you can further ask Amazon Q about specific components in the diagram:
+
+```
+Please explain how the security groups and network ACLs in this network architecture diagram control traffic
 ```
 
 ### Step 4: Configure CloudWatch Alarms
@@ -172,64 +239,55 @@ q chat
 ```
 
 In Amazon Q CLI, ask:
+
 ```
-Create a CloudWatch alarm for my EC2 instance when CPU usage exceeds 20%
+Create a CloudWatch alarm for my EC2 instance when CPU usage exceeds 20% and notify me by email
 ```
 
-2. Following Amazon Q CLI's recommendations, create an SNS topic and configure alarm notifications:
+2. Get the EC2 instance ID (Amazon Q might ask for this information):
 
 ```bash
-# Create SNS topic
-aws sns create-topic --name EC2MasterLabAlarmTopic
-
-# Subscribe to SNS topic (replace with your email address)
-aws sns subscribe \
-  --topic-arn <sns-topic-arn> \
-  --protocol email \
-  --notification-endpoint your-email@example.com
-```
-
-3. Create CloudWatch alarm:
-
-```bash
-# Get EC2 instance ID
 aws cloudformation describe-stacks \
   --stack-name ec2-master-lab \
   --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
   --output text
+```
 
-# Create alarm
-aws cloudwatch put-metric-alarm \
-  --alarm-name EC2MasterLabCPUAlarm \
-  --alarm-description "Alarm when CPU exceeds 20%" \
-  --metric-name CPUUtilization \
-  --namespace AWS/EC2 \
-  --statistic Average \
-  --period 300 \
-  --threshold 20 \
-  --comparison-operator GreaterThanThreshold \
-  --dimensions Name=InstanceId,Value=<instance-id> \
-  --evaluation-periods 1 \
-  --alarm-actions <sns-topic-arn>
+3. Interact with Amazon Q to get guidance on creating SNS topics and CloudWatch alarms:
+
+```
+Please provide steps to create an SNS topic, configure email subscription, and create a CloudWatch alarm
+```
+
+4. Following Amazon Q's guidance, perform these actions:
+   - Create an SNS topic
+   - Configure email subscription (and confirm the subscription)
+   - Create a CloudWatch alarm with the SNS topic as the notification target
+
+5. Verify that the alarm has been created:
+
+```
+How can I view the status of the CloudWatch alarm I just created?
 ```
 
 ### Step 5: Trigger CPU Load Test
 
-1. Access the EC2 instance's CPU load test page:
+1. Get the EC2 instance URL:
 
 ```bash
-# Get EC2 instance URL
 aws cloudformation describe-stacks \
   --stack-name ec2-master-lab \
   --query "Stacks[0].Outputs[?OutputKey=='InstanceURL'].OutputValue" \
   --output text
 ```
 
-2. Open the URL in a browser and click the "Start CPU Load" button
+2. Open the URL in a browser to access the EC2 instance's CPU load test page.
 
-3. Wait a few minutes and observe the CloudWatch alarm status change
+3. Click the "Start CPU Load" button to begin the CPU load test.
 
-4. Verify that you receive an alarm notification email
+4. Wait a few minutes and observe the CloudWatch alarm status change.
+
+5. Verify that you receive an alarm notification email.
 
 ### Step 6: Verify and Summarize
 
@@ -239,20 +297,25 @@ aws cloudformation describe-stacks \
 q chat
 ```
 
-In Amazon Q CLI, ask:
+In Amazon Q CLI, you can ask:
+
 ```
 View the current status of my CloudWatch alarm
 ```
 
-2. Stop the CPU load test:
-   - Return to the EC2 instance's CPU load test page
-   - Click the "Stop CPU Load" button
+2. Return to the EC2 instance's CPU load test page and click the "Stop CPU Load" button.
 
-3. Wait a few minutes and observe the alarm status return to normal
+3. Wait a few minutes and observe the alarm status return to normal.
 
 ## Clean Up Resources
 
-After completing the lab, delete all created resources to avoid unnecessary charges:
+After completing the lab, delete all created resources to avoid unnecessary charges. You can use Amazon Q CLI for guidance on cleaning up resources:
+
+```
+How can I clean up all resources created in this lab?
+```
+
+Here are the basic commands for cleaning up resources:
 
 ```bash
 # Delete CloudWatch alarm
@@ -267,228 +330,6 @@ aws cloudformation delete-stack --stack-name ec2-master-lab
 # Delete IAM role stacks
 aws cloudformation delete-stack --stack-name ec2-master-lab-ops-role
 aws cloudformation delete-stack --stack-name ec2-master-lab-cf-role
-```
-
-## Summary
-
-By completing this lab, you have learned how to:
-
-1. Use Amazon Q CLI to diagnose and solve EC2 connection problems
-2. Analyze AWS network architecture and understand the relationships between different components
-3. Configure CloudWatch alarms to monitor EC2 instance performance
-4. Trigger and verify alarm notifications
-
-These skills are valuable for daily operations and troubleshooting in AWS environments. Amazon Q CLI provides a simple yet powerful way to perform these tasks without having to remember complex AWS CLI commands or navigate the AWS Management Console.
-
-1. Download the `template.yaml` file from this lab directory
-2. Deploy the CloudFormation template using AWS CLI or AWS Management Console:
-
-```bash
-aws cloudformation create-stack \
-  --stack-name ec2-master-lab \
-  --template-body file://template.yaml \
-  --capabilities CAPABILITY_IAM
-```
-
-3. Wait for the stack creation to complete (approximately 5-10 minutes)
-
-### Step 2: Diagnose and Solve EC2 Connection Issues
-
-1. Try to connect to the EC2 instance via SSH (this will fail):
-
-```bash
-# Get the EC2 instance's public IP address
-aws cloudformation describe-stacks \
-  --stack-name ec2-master-lab \
-  --query "Stacks[0].Outputs[?OutputKey=='PublicIP'].OutputValue" \
-  --output text
-
-# Try SSH connection
-ssh ec2-user@<public-ip-address>
-```
-
-2. Use Amazon Q CLI to diagnose connection issues:
-
-```bash
-q chat
-```
-
-In Amazon Q CLI, ask:
-```
-My EC2 instance cannot be connected via SSH, please help me diagnose the problem
-```
-
-3. Following Amazon Q CLI's recommendations, modify the security group to allow SSH access:
-
-```bash
-# Get security group ID
-aws cloudformation describe-stacks \
-  --stack-name ec2-master-lab \
-  --query "Stacks[0].Outputs[?OutputKey=='SecurityGroupId'].OutputValue" \
-  --output text
-
-# Add SSH rule
-aws ec2 authorize-security-group-ingress \
-  --group-id <security-group-id> \
-  --protocol tcp \
-  --port 22 \
-  --cidr 0.0.0.0/0
-```
-
-4. Following Amazon Q CLI's recommendations, modify the network ACL to allow SSH access:
-
-```bash
-# Get network ACL ID
-aws cloudformation describe-stacks \
-  --stack-name ec2-master-lab \
-  --query "Stacks[0].Outputs[?OutputKey=='NetworkAclId'].OutputValue" \
-  --output text
-
-# Add inbound SSH rule
-aws ec2 create-network-acl-entry \
-  --network-acl-id <network-acl-id> \
-  --ingress \
-  --rule-number 110 \
-  --protocol 6 \
-  --port-range From=22,To=22 \
-  --cidr-block 0.0.0.0/0 \
-  --rule-action allow
-```
-
-5. Try SSH connection again to verify the issue is resolved:
-
-```bash
-ssh ec2-user@<public-ip-address>
-```
-
-### Step 3: Analyze Network Architecture
-
-1. Use Amazon Q CLI to analyze network architecture:
-
-```bash
-q chat
-```
-
-In Amazon Q CLI, ask:
-```
-Analyze my VPC architecture, including subnets, route tables, and gateways
-```
-
-2. Request to generate a network architecture diagram:
-
-```
-Generate a network architecture diagram based on my VPC resources
-```
-
-3. Analyze the connection between public and private subnets:
-
-```
-Analyze the connection between public and private subnets
-```
-
-### Step 4: Configure CloudWatch Alarms
-
-1. Use Amazon Q CLI to configure CPU usage alarms for the EC2 instance:
-
-```bash
-q chat
-```
-
-In Amazon Q CLI, ask:
-```
-Create a CloudWatch alarm for my EC2 instance when CPU usage exceeds 20%
-```
-
-2. Following Amazon Q CLI's recommendations, create an SNS topic and configure alarm notifications:
-
-```bash
-# Create SNS topic
-aws sns create-topic --name EC2MasterLabAlarmTopic
-
-# Subscribe to SNS topic (replace with your email address)
-aws sns subscribe \
-  --topic-arn <sns-topic-arn> \
-  --protocol email \
-  --notification-endpoint your-email@example.com
-```
-
-3. Create CloudWatch alarm:
-
-```bash
-# Get EC2 instance ID
-aws cloudformation describe-stacks \
-  --stack-name ec2-master-lab \
-  --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
-  --output text
-
-# Create alarm
-aws cloudwatch put-metric-alarm \
-  --alarm-name EC2MasterLabCPUAlarm \
-  --alarm-description "Alarm when CPU exceeds 20%" \
-  --metric-name CPUUtilization \
-  --namespace AWS/EC2 \
-  --statistic Average \
-  --period 300 \
-  --threshold 20 \
-  --comparison-operator GreaterThanThreshold \
-  --dimensions Name=InstanceId,Value=<instance-id> \
-  --evaluation-periods 1 \
-  --alarm-actions <sns-topic-arn>
-```
-
-### Step 5: Trigger CPU Load Test
-
-1. Access the EC2 instance's CPU load test page:
-
-```bash
-# Get EC2 instance URL
-aws cloudformation describe-stacks \
-  --stack-name ec2-master-lab \
-  --query "Stacks[0].Outputs[?OutputKey=='InstanceURL'].OutputValue" \
-  --output text
-```
-
-2. Open the URL in a browser and click the "Start CPU Load" button
-
-3. Wait a few minutes and observe the CloudWatch alarm status change
-
-4. Verify that you receive an alarm notification email
-
-### Step 6: Verify and Summarize
-
-1. Use Amazon Q CLI to view alarm status:
-
-```bash
-q chat
-```
-
-In Amazon Q CLI, ask:
-```
-View the current status of my CloudWatch alarm
-```
-
-2. Stop the CPU load test:
-   - Return to the EC2 instance's CPU load test page
-   - Click the "Stop CPU Load" button
-
-3. Wait a few minutes and observe the alarm status return to normal
-
-## Clean Up Resources
-
-After completing the lab, delete all created resources to avoid unnecessary charges:
-
-```bash
-# Delete CloudWatch alarm
-aws cloudwatch delete-alarms --alarm-names EC2MasterLabCPUAlarm
-
-# Delete SNS topic (optional)
-aws sns delete-topic --topic-arn <sns-topic-arn>
-
-# Delete CloudFormation stack
-aws cloudformation delete-stack --stack-name ec2-master-lab
-
-# Delete IAM role stack
-aws cloudformation delete-stack --stack-name ec2-master-lab-iam
 ```
 
 ## Summary
