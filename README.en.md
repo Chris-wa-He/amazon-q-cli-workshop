@@ -19,6 +19,10 @@ This workshop includes the following labs:
 1. [EC2 Connectivity Lab](./ec2-connectivity-lab/README.en.md) - Learn how to use Amazon Q CLI to diagnose and solve connectivity issues with EC2 instances.
 2. [AWS Resource Usage Analysis and Cost Optimization Lab](./cost-optimization-lab/README.en.md) - Learn how to use Amazon Q CLI to analyze AWS resource usage and get cost optimization recommendations.
 3. [Automated Operations Lab](./automated-operations-lab/README.en.md) - Learn how to use Amazon Q CLI to assist in developing and deploying automated operations tasks.
+4. [AWS Network Architecture Analysis Lab](./network-analysis-lab/README.en.md) - Learn how to use Amazon Q CLI to analyze and visualize AWS network architecture.
+5. [Vibe Coding Lab](./vibe-coding-lab/README.en.md) - Experience the process of developing applications through conversational interaction with Amazon Q CLI.
+6. [CloudWatch Alarm Configuration Lab](./cloudwatch-alarm-lab/README.en.md) - Learn how to use Amazon Q CLI to configure CPU usage alarms for EC2 instances.
+7. [EC2 Full-Stack Operations Master Lab](./ec2-master-lab/README.en.md) - Integrate EC2 connectivity issues, network architecture analysis, and CloudWatch alarm configuration to create an end-to-end practical scenario.
 
 ## Prerequisites
 
