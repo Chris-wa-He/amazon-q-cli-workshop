@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Deployment Role for EC2 Full-Stack Operations Master Lab'
+
+Resources:
+  # IAM Role for CloudFormation Deployment
+  CloudFormationDeploymentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: iam.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - !Ref CloudFormationDeploymentPolicy
+      Tags:
+        - Key: Purpose
+          Value: EC2MasterLabDeployment
+
+  # Custom Policy with CloudFormation Deployment Permissions
+  CloudFormationDeploymentPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for deploying CloudFormation resources for EC2 Full-Stack Operations Master Lab
+      Path: /
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # CloudFormation permissions
+          - Effect: Allow
+            Action:
+              - cloudformation:CreateStack
+              - cloudformation:UpdateStack
+              - cloudformation:DescribeStacks
+              - cloudformation:DescribeStackEvents
+              - cloudformation:DescribeStackResources
+              - cloudformation:GetTemplate
+              - cloudformation:ValidateTemplate
+              - cloudformation:DeleteStack
+            Resource: 
+              - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:stack/ec2-master-lab/*'
+          
+          # Resource creation permissions
+          - Effect: Allow
+            Action:
+              - ec2:CreateVpc
+              - ec2:CreateSubnet
+              - ec2:CreateInternetGateway
+              - ec2:AttachInternetGateway
+              - ec2:CreateRouteTable
+              - ec2:CreateRoute
+              - ec2:AssociateRouteTable
+              - ec2:CreateNetworkAcl
+              - ec2:CreateNetworkAclEntry
+              - ec2:CreateSecurityGroup
+              - ec2:RunInstances
+              - ec2:CreateTags
+            Resource: '*'
+          
+          # IAM permissions for instance profile creation
+          - Effect: Allow
+            Action:
+              - iam:CreateRole
+              - iam:PutRolePolicy
+              - iam:CreateInstanceProfile
+              - iam:AddRoleToInstanceProfile
+              - iam:PassRole
+            Resource: 
+              - !Sub 'arn:aws:iam::${AWS::AccountId}:role/EC2*'
+              - !Sub 'arn:aws:iam::${AWS::AccountId}:instance-profile/EC2*'
+          
+          # SSM Parameter Store for AMI lookup
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+            Resource: 'arn:aws:ssm:*:*:parameter/aws/service/ami-amazon-linux-latest/*'
+
+Outputs:
+  CloudFormationRoleARN:
+    Description: ARN of the CloudFormation Deployment IAM Role
+    Value: !GetAtt CloudFormationDeploymentRole.Arn
+    Export:
+      Name: EC2MasterLabCloudFormationRoleARN
+  
+  CloudFormationPolicyARN:
+    Description: ARN of the CloudFormation Deployment IAM Policy
+    Value: !Ref CloudFormationDeploymentPolicy
+    Export:
+      Name: EC2MasterLabCloudFormationPolicyARN

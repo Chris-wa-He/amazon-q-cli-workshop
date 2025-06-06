@@ -37,3 +37,15 @@
   - 实验任务：使用Amazon Q CLI查询现有EC2实例，为其配置CPU使用率超过20%的CloudWatch告警，并设置适当的通知机制。
   - 实验目标：学习如何使用Amazon Q CLI快速配置和管理CloudWatch告警，提高资源监控效率。
   - 状态：已完成 ✓ (创建了cloudwatch-alarm-lab目录，包含README.md、README.en.md、template.yaml、sample-queries.md和sample-queries.en.md)
+
+- [x] 全栈EC2运维大师实验（EC2 Full-Stack Operations Master Lab）
+  - 实验描述：整合EC2连通性问题、网络架构分析和CloudWatch告警配置三个实验，创建一个端到端的实践场景。
+  - 实验任务：
+    1. 部署具有连通性问题的EC2实例（安全组未开放SSH访问，网络ACL限制公网访问）
+    2. 使用Amazon Q CLI诊断并解决连通性问题
+    3. 分析网络架构并生成网络架构图
+    4. 为EC2实例配置CPU使用率告警
+    5. 使用CloudWatch告警配置实验中的脚本触发CPU负载测试
+    6. 验证告警触发并接收通知
+  - 实验目标：通过一个完整的场景，综合应用Amazon Q CLI的多种功能，解决实际问题。
+  - 状态：已完成 ✓ (创建了ec2-master-lab目录，包含README.md、README.en.md、template.yaml、cloudformation-role.yaml、operations-role.yaml和sample-queries.md)

@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Operations Role with Least Privilege for EC2 Full-Stack Operations Master Lab'
+
+Resources:
+  # IAM Role for Lab Operations
+  EC2MasterLabOperationsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: iam.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - !Ref EC2MasterLabOperationsPolicy
+      Tags:
+        - Key: Purpose
+          Value: EC2MasterLabOperations
+
+  # Custom Policy with Operations Permissions
+  EC2MasterLabOperationsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Least privilege policy for operating the EC2 Full-Stack Operations Master Lab
+      Path: /
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # CloudFormation read-only permissions
+          - Effect: Allow
+            Action:
+              - cloudformation:DescribeStacks
+              - cloudformation:DescribeStackResources
+              - cloudformation:GetTemplate
+            Resource: 
+              - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:stack/ec2-master-lab/*'
+          
+          # EC2 permissions for connectivity troubleshooting
+          - Effect: Allow
+            Action:
+              - ec2:DescribeInstances
+              - ec2:DescribeSecurityGroups
+              - ec2:DescribeNetworkAcls
+              - ec2:DescribeVpcs
+              - ec2:DescribeSubnets
+              - ec2:DescribeRouteTables
+              - ec2:DescribeInternetGateways
+              - ec2:DescribeNatGateways
+              - ec2:DescribeVpcEndpoints
+              - ec2:DescribeAddresses
+              - ec2:AuthorizeSecurityGroupIngress
+              - ec2:CreateNetworkAclEntry
+              - ec2:ReplaceNetworkAclEntry
+            Resource: '*'
+          
+          # CloudWatch permissions for alarm configuration
+          - Effect: Allow
+            Action:
+              - cloudwatch:PutMetricAlarm
+              - cloudwatch:DescribeAlarms
+              - cloudwatch:DeleteAlarms
+              - cloudwatch:GetMetricStatistics
+              - cloudwatch:ListMetrics
+            Resource: '*'
+          
+          # SNS permissions for alarm notifications
+          - Effect: Allow
+            Action:
+              - sns:CreateTopic
+              - sns:Subscribe
+              - sns:ListSubscriptionsByTopic
+              - sns:Publish
+              - sns:DeleteTopic
+            Resource: !Sub 'arn:aws:sns:*:${AWS::AccountId}:EC2MasterLabAlarmTopic'
+          
+          # SSM permissions for EC2 instance management
+          - Effect: Allow
+            Action:
+              - ssm:StartSession
+              - ssm:DescribeSessions
+              - ssm:GetConnectionStatus
+              - ssm:DescribeInstanceInformation
+            Resource: '*'
+
+Outputs:
+  OperationsRoleARN:
+    Description: ARN of the Operations IAM Role
+    Value: !GetAtt EC2MasterLabOperationsRole.Arn
+    Export:
+      Name: EC2MasterLabOperationsRoleARN
+  
+  OperationsPolicyARN:
+    Description: ARN of the Operations IAM Policy
+    Value: !Ref EC2MasterLabOperationsPolicy
+    Export:
+      Name: EC2MasterLabOperationsPolicyARN
